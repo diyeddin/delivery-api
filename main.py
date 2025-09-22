@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, APIRouter
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import models, schemas, auth, database
-from dependencies import get_current_user
+from dependencies import get_current_user, require_role
 
 # Initialize app
 app = FastAPI()
@@ -44,6 +44,13 @@ protected_router = APIRouter(prefix="/users", tags=["users"])
 def get_me(current_user: models.User = Depends(get_current_user)):
     return {"id": current_user.id, "name": current_user.name, "email": current_user.email}
 
+@app.get("/admin-only")
+def admin_only_route(current_user: models.User = Depends(require_role(["admin"]))):
+    return {"message": f"Hello Admin {current_user.name}"}
+
+@app.get("/driver-only")
+def driver_route(current_user: models.User = Depends(require_role(["driver"]))):
+    return {"message": f"Hello Driver {current_user.name}"}
 
 # Include routers in the app
 app.include_router(auth_router)

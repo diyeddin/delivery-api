@@ -15,7 +15,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)  # renamed
     address = Column(String, nullable=True)
-    role = Column(String, default="customer")
+    role = Column(String, default="customer") # customer | driver | admin
 
     orders = relationship("Order", back_populates="user")
 
