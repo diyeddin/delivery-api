@@ -1,0 +1,51 @@
+# app/routers/products.py
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+from app.db import models, database
+from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
+
+router = APIRouter(prefix="/products", tags=["products"])
+
+@router.post("/", response_model=ProductOut)
+def create_product(payload: ProductCreate, db: Session = Depends(database.get_db)):
+    store = db.query(models.Store).filter(models.Store.id == payload.store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    p = models.Product(**payload.dict())
+    db.add(p); db.commit(); db.refresh(p)
+    return p
+
+@router.get("/", response_model=List[ProductOut])
+def list_products(db: Session = Depends(database.get_db)):
+    return db.query(models.Product).all()
+
+@router.get("/{product_id}", response_model=ProductOut)
+def get_product(product_id: int, db: Session = Depends(database.get_db)):
+    p = db.query(models.Product).get(product_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    return p
+
+@router.put("/{product_id}", response_model=ProductOut)
+def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(database.get_db)):
+    p = db.query(models.Product).get(product_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    update_data = payload.dict(exclude_unset=True)
+    if "store_id" in update_data:
+        s = db.query(models.Store).get(update_data["store_id"])
+        if not s:
+            raise HTTPException(status_code=404, detail="New store not found")
+    for k, v in update_data.items():
+        setattr(p, k, v)
+    db.commit(); db.refresh(p)
+    return p
+
+@router.delete("/{product_id}")
+def delete_product(product_id: int, db: Session = Depends(database.get_db)):
+    p = db.query(models.Product).get(product_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Product not found")
+    db.delete(p); db.commit()
+    return {"detail": "Product deleted"}
