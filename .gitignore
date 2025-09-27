@@ -1,15 +1,35 @@
-# Python
+# --- Python ---
 __pycache__/
 *.py[cod]
-*.env
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+*.egg
+*.log
 
-# Virtual environment
+# --- Environments ---
 venv/
 env/
+.env
+*.env
 
-# VSCode
+# --- IDEs & Editors ---
 .vscode/
+.idea/
 
-# SQLite (if used)
+# --- Alembic ---
+alembic/versions/__pycache__/
+alembic/versions/*.pyc
+
+# --- SQLite / Databases ---
 *.db
+*.sqlite3
 
+# --- Testing ---
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Misc ---
+.DS_Store
