@@ -1,4 +1,3 @@
-# app/schemas/product.py
 from pydantic import BaseModel
 from typing import Optional
 
@@ -10,15 +9,12 @@ class ProductBase(BaseModel):
 class ProductCreate(ProductBase):
     store_id: int
 
-class ProductUpdate(BaseModel):
-    name: Optional[str] = None
-    price: Optional[float] = None
-    stock: Optional[int] = None
-    store_id: Optional[int] = None
+class ProductUpdate(ProductBase):
+    pass
 
 class ProductOut(ProductBase):
     id: int
-    store_id: int
+    store_id: int   # don’t include the full store to avoid recursion
 
     class Config:
-        orm_mode = True
+        from_attributes = True
