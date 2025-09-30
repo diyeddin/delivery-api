@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 import enum
@@ -42,10 +42,19 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     status = Column(Enum(OrderStatus), default=OrderStatus.pending)
-    total_price = Column(Float, default=0.0)
+    total_price = Column(Float, default=0.0) # optional, can be computed
 
     user = relationship("User", back_populates="orders")
-    items = relationship("OrderItem", back_populates="order")
+    items = relationship(
+        "OrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        lazy="joined"
+        )
+    
+    @property
+    def computed_total_price(self):
+        return sum(item.price_at_purchase * item.quantity for item in self.items)
 
 class OrderItem(Base):
     __tablename__ = "order_items"
@@ -53,6 +62,11 @@ class OrderItem(Base):
     order_id = Column(Integer, ForeignKey("orders.id"))
     product_id = Column(Integer, ForeignKey("products.id"))
     quantity = Column(Integer, nullable=False)
+    price_at_purchase = Column(Float, nullable=False)
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product")
+
+    __table_args__ = (
+        UniqueConstraint("order_id", "product_id", name="uq_order_product"),
+        )
