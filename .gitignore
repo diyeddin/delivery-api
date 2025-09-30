@@ -30,6 +30,9 @@ alembic/versions/*.pyc
 .pytest_cache/
 .coverage
 htmlcov/
+tests/
+pytest.ini
+TESTING.md
 
 # --- Misc ---
 .DS_Store
