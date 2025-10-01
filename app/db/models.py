@@ -8,6 +8,11 @@ class OrderStatus(str, enum.Enum):
     in_progress = "in_progress"
     delivered = "delivered"
 
+class UserRole(enum.Enum):
+    customer = "customer"
+    driver = "driver"
+    admin = "admin"
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -15,7 +20,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)  # renamed
     address = Column(String, nullable=True)
-    role = Column(String, default="customer") # customer | driver | admin
+    role = Column(Enum(UserRole), default=UserRole.customer)
 
     orders = relationship("Order", back_populates="user")
 
