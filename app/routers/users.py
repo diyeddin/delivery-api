@@ -1,6 +1,7 @@
 # app/routers/users.py
-from fastapi import APIRouter, Depends
-from app.db import models
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from app.db import models, database
 from app.utils.dependencies import get_current_user, require_role
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -21,3 +22,22 @@ def admin_only_route(current_user: models.User = Depends(require_role([models.Us
 @router.get("/driver-only")
 def driver_route(current_user: models.User = Depends(require_role([models.UserRole.driver]))):
     return {"message": f"Hello Driver {current_user.name}"}
+
+@router.patch("/{user_id}/role")
+def update_user_role(
+    user_id: int,
+    role: models.UserRole,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    ):
+    if current_user.role != models.UserRole.admin:
+        raise HTTPException(status_code=403, detail="Only admins can update roles")
+
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.role = role
+    db.commit()
+    db.refresh(user)
+    return user
