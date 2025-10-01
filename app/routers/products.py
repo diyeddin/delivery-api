@@ -12,7 +12,7 @@ router = APIRouter(prefix="/products", tags=["products"])
 def create_product(
     payload: ProductCreate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
     store = db.query(models.Store).filter(models.Store.id == payload.store_id).first()
     if not store:
@@ -37,7 +37,7 @@ def update_product(
     product_id: int,
     payload: ProductUpdate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
     p = db.query(models.Product).get(product_id)
     if not p:
@@ -56,7 +56,7 @@ def update_product(
 def delete_product(
     product_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
     p = db.query(models.Product).get(product_id)
     if not p:

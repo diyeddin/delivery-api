@@ -12,6 +12,7 @@ class UserRole(enum.Enum):
     customer = "customer"
     driver = "driver"
     admin = "admin"
+    store_owner = "store_owner"
 
 class User(Base):
     __tablename__ = "users"
@@ -22,6 +23,7 @@ class User(Base):
     address = Column(String, nullable=True)
     role = Column(Enum(UserRole), default=UserRole.customer)
 
+    stores = relationship("Store", back_populates="owner")
     orders = relationship("Order", back_populates="user")
     deliveries = relationship("Order", foreign_keys="Order.driver_id", back_populates="driver")
 
@@ -30,13 +32,15 @@ class Store(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     category = Column(String)
+    description = Column(String, nullable=True)
 
-    products = relationship("Product", back_populates="store")
+    owner = relationship("User", back_populates="stores")
+    products = relationship("Product", back_populates="store", cascade="all, delete-orphan")
 
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
-    store_id = Column(Integer, ForeignKey("stores.id"))
+    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False)
     name = Column(String, nullable=False)
     price = Column(Float, nullable=False)
     stock = Column(Integer, default=0)

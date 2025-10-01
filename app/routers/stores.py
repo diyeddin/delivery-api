@@ -11,7 +11,7 @@ router = APIRouter(prefix="/stores", tags=["stores"])
 def create_store(
     store: StoreCreate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
     db_store = models.Store(**store.dict())
     db.add(db_store)
@@ -38,7 +38,7 @@ def update_store(
     store_id: int,
     update: StoreUpdate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:
@@ -54,7 +54,7 @@ def update_store(
 def delete_store(
     store_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:

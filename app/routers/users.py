@@ -15,14 +15,6 @@ def get_me(current_user: models.User = Depends(get_current_user)):
         "role": current_user.role
         }
 
-@router.get("/admin-only")
-def admin_only_route(current_user: models.User = Depends(require_role([models.UserRole.admin]))):
-    return {"message": f"Hello Admin {current_user.name}"}
-
-@router.get("/driver-only")
-def driver_route(current_user: models.User = Depends(require_role([models.UserRole.driver]))):
-    return {"message": f"Hello Driver {current_user.name}"}
-
 @router.patch("/{user_id}/role")
 def update_user_role(
     user_id: int,
@@ -41,3 +33,12 @@ def update_user_role(
     db.commit()
     db.refresh(user)
     return user
+
+# test endpoints for role-based access control
+@router.get("/admin-only")
+def admin_only_route(current_user: models.User = Depends(require_role([models.UserRole.admin]))):
+    return {"message": f"Hello Admin {current_user.name}"}
+
+@router.get("/driver-only")
+def driver_route(current_user: models.User = Depends(require_role([models.UserRole.driver]))):
+    return {"message": f"Hello Driver {current_user.name}"}
