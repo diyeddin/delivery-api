@@ -23,6 +23,7 @@ class User(Base):
     role = Column(Enum(UserRole), default=UserRole.customer)
 
     orders = relationship("Order", back_populates="user")
+    deliveries = relationship("Order", foreign_keys="Order.driver_id", back_populates="driver")
 
 class Store(Base):
     __tablename__ = "stores"
@@ -45,11 +46,13 @@ class Product(Base):
 class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    user_id = Column(Integer, ForeignKey("users.id")) # customer
+    driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # driver
     status = Column(Enum(OrderStatus), default=OrderStatus.pending)
     total_price = Column(Float, default=0.0) # optional, can be computed
 
-    user = relationship("User", back_populates="orders")
+    user = relationship("User", foreign_keys=[user_id], back_populates="orders")
+    driver = relationship("User", foreign_keys=[driver_id])
     items = relationship(
         "OrderItem",
         back_populates="order",
