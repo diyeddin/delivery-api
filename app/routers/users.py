@@ -15,9 +15,9 @@ def get_me(current_user: models.User = Depends(get_current_user)):
         }
 
 @router.get("/admin-only")
-def admin_only_route(current_user: models.User = Depends(require_role(["admin"]))):
+def admin_only_route(current_user: models.User = Depends(require_role([models.UserRole.admin]))):
     return {"message": f"Hello Admin {current_user.name}"}
 
 @router.get("/driver-only")
-def driver_route(current_user: models.User = Depends(require_role(["driver"]))):
+def driver_route(current_user: models.User = Depends(require_role([models.UserRole.driver]))):
     return {"message": f"Hello Driver {current_user.name}"}

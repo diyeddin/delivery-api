@@ -4,11 +4,16 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.db import models, database
 from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
+from app.utils.dependencies import require_role
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 @router.post("/", response_model=ProductOut)
-def create_product(payload: ProductCreate, db: Session = Depends(database.get_db)):
+def create_product(
+    payload: ProductCreate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    ):
     store = db.query(models.Store).filter(models.Store.id == payload.store_id).first()
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
@@ -28,7 +33,12 @@ def get_product(product_id: int, db: Session = Depends(database.get_db)):
     return p
 
 @router.put("/{product_id}", response_model=ProductOut)
-def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(database.get_db)):
+def update_product(
+    product_id: int,
+    payload: ProductUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    ):
     p = db.query(models.Product).get(product_id)
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -43,7 +53,11 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     return p
 
 @router.delete("/{product_id}")
-def delete_product(product_id: int, db: Session = Depends(database.get_db)):
+def delete_product(
+    product_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    ):
     p = db.query(models.Product).get(product_id)
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")

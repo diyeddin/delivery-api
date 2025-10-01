@@ -3,11 +3,16 @@ from sqlalchemy.orm import Session
 from app.db import models, database
 from app.schemas.store import StoreCreate, StoreUpdate, StoreOut
 from typing import List
+from app.utils.dependencies import require_role
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 
 @router.post("/", response_model=StoreOut)
-def create_store(store: StoreCreate, db: Session = Depends(database.get_db)):
+def create_store(
+    store: StoreCreate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    ):
     db_store = models.Store(**store.dict())
     db.add(db_store)
     db.commit()
@@ -29,7 +34,12 @@ def get_store(store_id: int, db: Session = Depends(database.get_db)):
 
 
 @router.put("/{store_id}", response_model=StoreOut)
-def update_store(store_id: int, update: StoreUpdate, db: Session = Depends(database.get_db)):
+def update_store(
+    store_id: int,
+    update: StoreUpdate,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    ):
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:
         raise HTTPException(status_code=404, detail="Store not found")
@@ -41,7 +51,11 @@ def update_store(store_id: int, update: StoreUpdate, db: Session = Depends(datab
 
 
 @router.delete("/{store_id}")
-def delete_store(store_id: int, db: Session = Depends(database.get_db)):
+def delete_store(
+    store_id: int,
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    ):
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:
         raise HTTPException(status_code=404, detail="Store not found")

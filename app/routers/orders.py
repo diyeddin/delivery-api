@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.db import database, models
 from app.schemas import order as order_schema
-from app.utils.dependencies import get_current_user, require_role
+from app.utils.dependencies import require_role
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -12,8 +12,8 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 def create_order(
     order: order_schema.OrderCreate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(get_current_user)
-):
+    current_user: models.User = Depends(require_role([models.UserRole.customer]))
+    ):
     order_items = []
     total = 0.0
 
@@ -49,8 +49,8 @@ def create_order(
 @router.get("/me", response_model=List[order_schema.OrderOut])
 def get_my_orders(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(get_current_user)
-):
+    current_user: models.User = Depends(require_role([models.UserRole.customer])) # TODO add admin and driver roles maybe?
+    ):
     return db.query(models.Order).filter(models.Order.user_id == current_user.id).all()
 
 
@@ -58,8 +58,8 @@ def get_my_orders(
 def get_order(
     order_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(get_current_user)
-):
+    current_user: models.User = Depends(require_role([models.UserRole.customer])) # TODO add admin and driver roles maybe?
+    ):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order or order.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -71,8 +71,8 @@ def update_status(
     order_id: int,
     new_status: str,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role(["admin", "driver"]))
-):
+    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.driver]))
+    ):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
