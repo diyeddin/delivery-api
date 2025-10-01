@@ -33,6 +33,7 @@ class Store(Base):
     name = Column(String, nullable=False)
     category = Column(String)
     description = Column(String, nullable=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     owner = relationship("User", back_populates="stores")
     products = relationship("Product", back_populates="store", cascade="all, delete-orphan")

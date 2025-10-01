@@ -13,7 +13,14 @@ def create_store(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
-    db_store = models.Store(**store.dict())
+    store_data = store.dict()
+    
+    # Set the owner_id to the current user if they're a store_owner
+    if current_user.role == models.UserRole.store_owner:
+        store_data["owner_id"] = current_user.id
+    # Admins can create stores without setting ownership (owner_id = None)
+    
+    db_store = models.Store(**store_data)
     db.add(db_store)
     db.commit()
     db.refresh(db_store)
@@ -23,6 +30,15 @@ def create_store(
 @router.get("/", response_model=List[StoreOut])
 def list_stores(db: Session = Depends(database.get_db)):
     return db.query(models.Store).all()
+
+
+@router.get("/my-stores", response_model=List[StoreOut])
+def get_my_stores(
+    db: Session = Depends(database.get_db),
+    current_user: models.User = Depends(require_role([models.UserRole.store_owner]))
+):
+    """Get stores owned by the current store owner."""
+    return db.query(models.Store).filter(models.Store.owner_id == current_user.id).all()
 
 
 @router.get("/{store_id}", response_model=StoreOut)
@@ -43,6 +59,12 @@ def update_store(
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:
         raise HTTPException(status_code=404, detail="Store not found")
+    
+    # Store owners can only update their own stores
+    if current_user.role == models.UserRole.store_owner:
+        if db_store.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only update your own stores")
+    
     for key, value in update.dict(exclude_unset=True).items():
         setattr(db_store, key, value)
     db.commit()
@@ -59,6 +81,12 @@ def delete_store(
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:
         raise HTTPException(status_code=404, detail="Store not found")
+    
+    # Store owners can only delete their own stores
+    if current_user.role == models.UserRole.store_owner:
+        if db_store.owner_id != current_user.id:
+            raise HTTPException(status_code=403, detail="You can only delete your own stores")
+    
     db.delete(db_store)
     db.commit()
     return {"detail": "Store deleted"}
