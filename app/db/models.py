@@ -24,7 +24,7 @@ class User(Base):
     role = Column(Enum(UserRole), default=UserRole.customer)
 
     stores = relationship("Store", back_populates="owner")
-    orders = relationship("Order", back_populates="user")
+    orders = relationship("Order", foreign_keys="Order.user_id", back_populates="user")
     deliveries = relationship("Order", foreign_keys="Order.driver_id", back_populates="driver")
 
 class Store(Base):
