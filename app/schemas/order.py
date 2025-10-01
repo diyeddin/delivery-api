@@ -20,6 +20,7 @@ class OrderItemOut(BaseModel):
 class OrderOut(BaseModel):
     id: int
     user_id: int
+    driver_id: int = None  # Include driver_id field
     status: str
     total_price: float
     items: List[OrderItemOut]

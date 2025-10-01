@@ -57,7 +57,7 @@ class Order(Base):
     total_price = Column(Float, default=0.0) # optional, can be computed
 
     user = relationship("User", foreign_keys=[user_id], back_populates="orders")
-    driver = relationship("User", foreign_keys=[driver_id])
+    driver = relationship("User", foreign_keys=[driver_id], back_populates="deliveries")
     items = relationship(
         "OrderItem",
         back_populates="order",
