@@ -7,6 +7,14 @@ psycopg2-binary==2.9.9
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-multipart==0.0.6
+pydantic-settings==2.0.3
+
+# Logging dependencies
+structlog==23.2.0
+python-json-logger==2.0.7
+
+# HTTP requests (for health checks and testing)
+requests==2.31.0
 
 # Testing dependencies
 pytest==7.4.3
