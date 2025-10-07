@@ -5,8 +5,12 @@ import enum
 
 class OrderStatus(str, enum.Enum):
     pending = "pending"
-    in_progress = "in_progress"
+    confirmed = "confirmed"
+    assigned = "assigned"
+    picked_up = "picked_up"
+    in_transit = "in_transit"
     delivered = "delivered"
+    cancelled = "cancelled"
 
 class UserRole(enum.Enum):
     customer = "customer"
