@@ -90,3 +90,19 @@ def delete_store(
     db.delete(db_store)
     db.commit()
     return {"detail": "Store deleted"}
+
+
+@router.get("/{store_id}/products")
+def get_store_products(
+    store_id: int,
+    db: Session = Depends(database.get_db)
+):
+    """Get all products for a specific store"""
+    # Check if store exists
+    store = db.query(models.Store).filter(models.Store.id == store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    
+    # Get all products for this store
+    products = db.query(models.Product).filter(models.Product.store_id == store_id).all()
+    return products
