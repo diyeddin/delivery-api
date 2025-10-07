@@ -1,10 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional
 
 class ProductBase(BaseModel):
     name: str
     price: float
-    stock: int
+    stock: int = 0
 
 class ProductCreate(ProductBase):
     store_id: int
@@ -16,8 +16,7 @@ class ProductUpdate(BaseModel):
     store_id: Optional[int] = None
 
 class ProductOut(ProductBase):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
-    store_id: int   # don’t include the full store to avoid recursion
-
-    class Config:
-        from_attributes = True
+    store_id: int   # don't include the full store to avoid recursion

@@ -13,7 +13,7 @@ def create_store(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
-    store_data = store.dict()
+    store_data = store.model_dump()
     
     # Set the owner_id to the current user if they're a store_owner
     if current_user.role == models.UserRole.store_owner:
@@ -65,7 +65,7 @@ def update_store(
         if db_store.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="You can only update your own stores")
     
-    for key, value in update.dict(exclude_unset=True).items():
+    for key, value in update.model_dump(exclude_unset=True).items():
         setattr(db_store, key, value)
     db.commit()
     db.refresh(db_store)

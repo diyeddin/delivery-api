@@ -23,7 +23,7 @@ def create_product(
         if store.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="You can only create products in your own stores")
     
-    p = models.Product(**payload.dict())
+    p = models.Product(**payload.model_dump())
     db.add(p); db.commit(); db.refresh(p)
     return p
 
@@ -45,7 +45,7 @@ def get_my_products(
 
 @router.get("/{product_id}", response_model=ProductOut)
 def get_product(product_id: int, db: Session = Depends(database.get_db)):
-    p = db.query(models.Product).get(product_id)
+    p = db.get(models.Product, product_id)
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
     return p
@@ -57,7 +57,7 @@ def update_product(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
-    p = db.query(models.Product).get(product_id)
+    p = db.get(models.Product, product_id)
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
     
@@ -66,9 +66,9 @@ def update_product(
         if p.store.owner_id != current_user.id:
             raise HTTPException(status_code=403, detail="You can only update products in your own stores")
     
-    update_data = payload.dict(exclude_unset=True)
+    update_data = payload.model_dump(exclude_unset=True)
     if "store_id" in update_data:
-        s = db.query(models.Store).get(update_data["store_id"])
+        s = db.get(models.Store, update_data["store_id"])
         if not s:
             raise HTTPException(status_code=404, detail="New store not found")
         
@@ -88,7 +88,7 @@ def delete_product(
     db: Session = Depends(database.get_db),
     current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
     ):
-    p = db.query(models.Product).get(product_id)
+    p = db.get(models.Product, product_id)
     if not p:
         raise HTTPException(status_code=404, detail="Product not found")
     

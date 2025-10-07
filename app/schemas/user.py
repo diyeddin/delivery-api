@@ -1,5 +1,5 @@
 # app/schemas/user.py
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, ConfigDict
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -7,13 +7,12 @@ class UserCreate(BaseModel):
     name: str | None = None
 
 class UserOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
     id: int
     email: EmailStr
     name: str | None = None
     role: str  # make sure your User model has a 'role' field
-
-    class Config:
-        from_attributes = True  # <-- fix typo: should be from_attributes, not from_attributes
 
 class Token(BaseModel):
     access_token: str
