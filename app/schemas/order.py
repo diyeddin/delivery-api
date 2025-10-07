@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 class OrderItemCreate(BaseModel):
     product_id: int
@@ -20,7 +20,7 @@ class OrderItemOut(BaseModel):
 class OrderOut(BaseModel):
     id: int
     user_id: int
-    driver_id: int = None  # Include driver_id field
+    driver_id: Optional[int] = None  # Make driver_id optional
     status: str
     total_price: float
     items: List[OrderItemOut]

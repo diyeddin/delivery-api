@@ -4,13 +4,13 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import Order, OrderStatus, UserRole
-from app.schemas.order import Order as OrderSchema
+from app.schemas.order import OrderOut
 from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-@router.get("/orders", response_model=List[OrderSchema])
+@router.get("/orders", response_model=List[OrderOut])
 def get_all_orders(
     status_filter: Optional[OrderStatus] = Query(None, description="Filter orders by status"),
     current_user=Depends(get_current_user),

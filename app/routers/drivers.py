@@ -4,13 +4,13 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import Order, OrderStatus, UserRole
-from app.schemas.order import Order as OrderSchema
+from app.schemas.order import OrderOut
 from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/drivers", tags=["drivers"])
 
 
-@router.get("/available-orders", response_model=List[OrderSchema])
+@router.get("/available-orders", response_model=List[OrderOut])
 def get_available_orders(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -70,7 +70,7 @@ def accept_order(
     return {"message": "Order accepted successfully", "order_id": order_id}
 
 
-@router.get("/my-deliveries", response_model=List[OrderSchema])
+@router.get("/my-deliveries", response_model=List[OrderOut])
 def get_my_deliveries(
     current_user=Depends(get_current_user),
     db: Session = Depends(get_db)
