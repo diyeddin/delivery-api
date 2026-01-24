@@ -24,3 +24,5 @@ pytest-asyncio
 httpx
 factory-boy
 pytest-cov
+celery[redis]>=5.3.0
+redis>=4.5.0

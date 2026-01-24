@@ -236,11 +236,11 @@ def send_order_notification(self, order_id: int):
 ```
 
 **Tasks:**
-- [ ] Choose Celery (mature) vs ARQ (async-native)
+- [x] Choose Celery (mature) vs ARQ (async-native)
 - [ ] Set up Redis as message broker
-- [ ] Create tasks for: order notifications, stock alerts, driver assignments
+- [x] Create tasks for: order notifications, stock alerts, driver assignments
 - [ ] Add Flower for task monitoring
-- [ ] Implement task retry policies and dead-letter queues
+- [x] Implement task retry policies and dead-letter queues
 
 ---
 
