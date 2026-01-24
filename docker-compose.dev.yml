@@ -45,7 +45,7 @@ services:
       - "8000:8000"
       - "5678:5678"  # Debug port
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/mall_delivery
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/mall_delivery
       - SECRET_KEY=dev-secret-key-change-in-production-32-chars
       - DEBUG=true
       - ENVIRONMENT=development

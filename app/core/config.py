@@ -1,18 +1,18 @@
 # app/core/config.py
-from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator, ConfigDict
-from typing import List, Union
-import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, PostgresDsn, RedisDsn, AnyHttpUrl
+from typing import List, Union, Optional
 import warnings
-
 
 class Settings(BaseSettings):
     """Application settings with environment variable support and validation."""
     
-    model_config = ConfigDict(
+    # CRITICAL FIX: extra="ignore" prevents crashes when Docker passes system env vars
+    model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False
+        case_sensitive=False,
+        extra="ignore"
     )
     
     # Security Settings
@@ -28,11 +28,30 @@ class Settings(BaseSettings):
         le=10080,  # Max 1 week
         description="JWT token expiration time in minutes"
     )
+    # Added based on your error logs
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(
+        default=7,
+        description="Refresh token expiration in days"
+    )
     
-    # Database Configuration  
-    DATABASE_URL: str = Field(
+    # Database Configuration
+    # We allow Union[str, PostgresDsn] to handle both string URLs and Pydantic DSN objects
+    DATABASE_URL: Union[str, PostgresDsn] = Field(
         ...,
         description="Database connection URL"
+    )
+    
+    # Database Connection Components (Optional, but good to have defined to avoid errors)
+    POSTGRES_USER: Optional[str] = "postgres"
+    POSTGRES_PASSWORD: Optional[str] = "postgres"
+    POSTGRES_SERVER: Optional[str] = "db"
+    POSTGRES_PORT: Optional[str] = "5432"
+    POSTGRES_DB: Optional[str] = "mall_delivery"
+
+    # Redis Configuration (Critical for Celery & Idempotency)
+    REDIS_URL: Union[str, RedisDsn] = Field(
+        default="redis://localhost:6379/0",
+        description="Redis connection URL"
     )
     
     # Application Settings
@@ -46,6 +65,10 @@ class Settings(BaseSettings):
     API_V1_STR: str = Field(default="/api/v1", description="API version prefix")
     PROJECT_NAME: str = Field(default="Mall Delivery API", description="Project name")
     
+    # Pagination (Added based on your error logs)
+    DEFAULT_PAGE_SIZE: int = Field(default=20, ge=1, le=100)
+    MAX_PAGE_SIZE: int = Field(default=100, ge=1, le=1000)
+
     # CORS Settings
     ALLOWED_ORIGINS: List[str] = Field(
         default=["http://localhost:3000"], 
@@ -79,11 +102,12 @@ class Settings(BaseSettings):
             warnings.warn("SECRET_KEY should be at least 32 characters long for security")
         return v
     
-    @field_validator("DATABASE_URL")
-    @classmethod  
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
     def validate_database_url(cls, v):
         """Basic validation for database URL format."""
-        if not v.startswith(("postgresql://", "sqlite:///")):
+        if v and isinstance(v, str) and not v.startswith(("postgresql", "sqlite")):
+             # Relaxed check slightly to allow 'postgresql+asyncpg'
             raise ValueError("DATABASE_URL must be a valid database URL")
         return v
     
@@ -104,5 +128,7 @@ settings = Settings()
 if settings.ENVIRONMENT == "production":
     if settings.DEBUG:
         warnings.warn("DEBUG should be False in production environment")
-    if "localhost" in settings.DATABASE_URL:
+    # Convert DSN to string for check if needed
+    db_url_str = str(settings.DATABASE_URL)
+    if "localhost" in db_url_str and "postgres" in db_url_str:
         warnings.warn("Using localhost database URL in production environment")
