@@ -252,11 +252,11 @@ def send_order_notification(self, order_id: int):
 - `app/core/config.py` (add pool settings)
 
 **Tasks:**
-- [ ] Configure pool size based on expected concurrency (start: 20)
-- [ ] Enable `pool_pre_ping` to handle stale connections
-- [ ] Add connection pool metrics to health check
-- [ ] Set up query logging for slow queries (>100ms)
-- [ ] Create indexes on foreign keys (order.user_id, order.driver_id, etc.)
+- [x] Configure pool size based on expected concurrency (start: 20)
+- [x] Enable `pool_pre_ping` to handle stale connections
+- [x] Add connection pool metrics to health check
+- [x] Set up query logging for slow queries (>100ms)
+- [x] Create indexes on foreign keys (order.user_id, order.driver_id, etc.)
 
 ---
 

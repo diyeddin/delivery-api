@@ -57,6 +57,14 @@ class Settings(BaseSettings):
         default="INFO", 
         description="Logging level"
     )
+
+    # Database pool settings
+    DB_POOL_SIZE: int = Field(default=20, description="Database connection pool size")
+    DB_MAX_OVERFLOW: int = Field(default=10, description="Database connection pool max overflow")
+    DB_POOL_PRE_PING: bool = Field(default=True, description="Enable pool_pre_ping to validate connections")
+
+    # Observability
+    SLOW_QUERY_THRESHOLD_MS: int = Field(default=100, description="Slow query threshold in milliseconds")
     
     @field_validator("SECRET_KEY")
     @classmethod

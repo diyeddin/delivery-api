@@ -2,6 +2,8 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.services.order_service import AsyncOrderService
 from app.core import security
 from app.db import models, database
 from typing import List
@@ -58,3 +60,27 @@ def require_scope(required_scope: str):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing scope: {required_scope}")
         return current_user
     return scope_checker
+
+async def verify_order_access(
+    order_id: int, 
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Ensures the user has the right to access this specific order.
+    - Admins: Can access all.
+    - Customers: Can access their own.
+    - Store Owners: Can access ONLY if order.store_id is in their owned stores.
+    """
+    svc = AsyncOrderService(db)
+    order = await svc.get_order(order_id, current_user) # Logic is partly inside service, but let's reinforce.
+    
+    if current_user.role == models.UserRole.store_owner:
+        # Get user's stores
+        result = await db.execute(select(models.Store.id).where(models.Store.owner_id == current_user.id))
+        my_store_ids = result.scalars().all()
+        
+        if order.store_id not in my_store_ids:
+            raise HTTPException(status_code=403, detail="Not authorized to access orders from other stores")
+            
+    return order

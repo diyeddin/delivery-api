@@ -3,7 +3,7 @@ Product service layer for business logic separation.
 """
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from typing import List, Optional
 from app.db import models
 from app.schemas.product import ProductCreate, ProductUpdate
@@ -200,3 +200,13 @@ class AsyncProductService:
         await self.db.commit()
         await self.db.refresh(product)
         return product
+    
+    async def release_stock(self, product_id: int, quantity: int):
+        """Re-add stock when an order is cancelled."""
+        # Use atomic update to avoid race conditions
+        stmt = (
+            update(models.Product)
+            .where(models.Product.id == product_id)
+            .values(stock=models.Product.stock + quantity)
+        )
+        await self.db.execute(stmt)

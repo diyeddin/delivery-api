@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Optional
+from datetime import datetime
 
 class OrderItemCreate(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
@@ -32,11 +33,14 @@ class OrderOut(BaseModel):
     
     id: int
     user_id: int
+    # CRITICAL ADDITION: Needed for multi-store logic
+    store_id: int 
     driver_id: Optional[int] = None
     status: str
     total_price: float = Field(..., ge=0, description="Total price must be non-negative")
+    # HELPFUL ADDITION: Needed for frontend to show "Time Remaining" before timeout
+    assigned_at: Optional[datetime] = None 
     items: List[OrderItemOut] = Field(..., min_length=1, description="Order must have at least one item")
-
 class OrderStatusUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     status: str = Field(..., description="New order status")

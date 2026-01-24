@@ -11,6 +11,7 @@ from app.utils.exceptions import NotFoundError, BadRequestError, InsufficientSto
 from app.services.product_service import ProductService
 from app.utils.exceptions import ConflictError
 from datetime import datetime, timezone, timedelta
+from itertools import groupby
 
 
 class OrderService:
@@ -130,6 +131,7 @@ class OrderService:
             order.assigned_at = None
 
         order.status = new_status_enum
+        
         self.db.commit()
         self.db.refresh(order)
         return order
@@ -303,45 +305,84 @@ class AsyncOrderService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create_order(self, order_data: OrderCreate, current_user: models.User) -> models.Order:
+    async def create_order(self, order_data: OrderCreate, current_user: models.User) -> List[models.Order]:
+        """
+        Create orders from a cart. 
+        If items belong to multiple stores, split them into separate Order records.
+        """
         if not order_data.items:
             raise BadRequestError("Order must contain at least one item")
 
         from app.services.product_service import AsyncProductService
         product_svc = AsyncProductService(self.db)
 
-        order_items = []
-        total_price = 0.0
-
+        # 1. Fetch and Validate all products first
+        # We need to know the store_id for every product to group them
+        validated_items = []
         for item in order_data.items:
             product = await product_svc.get_product(item.product_id)
+            
+            # Stock Check
             if not await product_svc.check_stock_availability(item.product_id, item.quantity):
                 raise InsufficientStockError(product.name, item.quantity, product.stock)
+            
+            validated_items.append({
+                "schema": item,
+                "product": product,
+                "store_id": product.store_id
+            })
 
-            order_item = models.OrderItem(
-                product_id=item.product_id,
-                quantity=item.quantity,
-                price_at_purchase=product.price
-            )
-            order_items.append(order_item)
-            total_price += product.price * item.quantity
+        # 2. Group items by Store ID
+        # Sort first because groupby requires sorted input
+        validated_items.sort(key=lambda x: x["store_id"])
+        
+        created_orders = []
 
-        db_order = models.Order(
-            user_id=current_user.id,
-            status=models.OrderStatus.pending,
-            total_price=total_price,
-            items=order_items
-        )
-        self.db.add(db_order)
-        await self.db.flush()
+        try:
+            for store_id, group in groupby(validated_items, key=lambda x: x["store_id"]):
+                store_items = list(group)
+                
+                # Calculate total for this specific store's order
+                total_price = 0.0
+                db_order_items = []
+                
+                for item_data in store_items:
+                    product = item_data["product"]
+                    qty = item_data["schema"].quantity
+                    
+                    order_item = models.OrderItem(
+                        product_id=product.id,
+                        quantity=qty,
+                        price_at_purchase=product.price
+                    )
+                    db_order_items.append(order_item)
+                    total_price += product.price * qty
 
-        # Reserve stock for items
-        for item in order_data.items:
-            await product_svc.reserve_stock(item.product_id, item.quantity)
+                    # Reserve stock immediately
+                    await product_svc.reserve_stock(product.id, qty)
 
-        await self.db.commit()
-        await self.db.refresh(db_order)
-        return db_order
+                # Create the Order record for this store
+                db_order = models.Order(
+                    user_id=current_user.id,
+                    store_id=store_id,  # CRITICAL: Link to store
+                    status=models.OrderStatus.pending,
+                    total_price=total_price,
+                    items=db_order_items
+                )
+                self.db.add(db_order)
+                created_orders.append(db_order)
+
+            await self.db.commit()
+            
+            # Refresh all orders to get IDs
+            for order in created_orders:
+                await self.db.refresh(order)
+                
+            return created_orders
+
+        except Exception as e:
+            await self.db.rollback()
+            raise e
 
     async def get_order(self, order_id: int, current_user: models.User) -> models.Order:
         result = await self.db.execute(select(models.Order).where(models.Order.id == order_id))
@@ -387,11 +428,17 @@ class AsyncOrderService:
             raise BadRequestError(f"Invalid status: {new_status}")
 
         self._validate_status_transition(order.status, new_status_enum, current_user)
-        # If cancelling, also clear driver assignment
+
+        # If cancelling, release stock
         if new_status_enum == models.OrderStatus.cancelled:
+            # We need to fetch items to know what to release
+            # Ensure items are loaded (lazy="joined" in model helps here)
+            for item in order.items:
+                await self.product_service.release_stock(item.product_id, item.quantity)
+            
             order.driver_id = None
             order.assigned_at = None
-
+            
         order.status = new_status_enum
         await self.db.commit()
         await self.db.refresh(order)

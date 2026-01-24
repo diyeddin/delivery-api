@@ -36,8 +36,13 @@ class UserOut(BaseModel):
     email: EmailStr
     name: Optional[str] = None
     role: str
+    # NEW: Driver fields
+    is_active: bool = True
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class UserUpdate(BaseModel):
+    """Used for profile updates (Name, Email, etc.)"""
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     
@@ -47,6 +52,16 @@ class UserUpdate(BaseModel):
         if v is not None and (not v or not v.strip()):
             raise ValueError('Name cannot be empty or whitespace only')
         return v.strip() if v else v
+
+class DriverLocationUpdate(BaseModel):
+    """
+    NEW: Lightweight schema for high-frequency GPS pings.
+    Only allows updating location and status.
+    """
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    is_active: Optional[bool] = None
 
 class Token(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)

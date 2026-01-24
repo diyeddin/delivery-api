@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator, ConfigDict
+from pydantic import BaseModel, field_validator, ConfigDict, Field
 from typing import List, Optional
 from app.schemas.product import ProductOut  # import product schema
 
@@ -7,6 +7,9 @@ class StoreBase(BaseModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+    # NEW: Location fields
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
     
     @field_validator('name')
     @classmethod
@@ -25,6 +28,8 @@ class StoreUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
+    latitude: Optional[float] = Field(None, ge=-90, le=90)
+    longitude: Optional[float] = Field(None, ge=-180, le=180)
     
     @field_validator('name')
     @classmethod

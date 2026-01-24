@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum, UniqueConstraint, DateTime, Text
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum, UniqueConstraint, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 import enum
@@ -28,6 +28,11 @@ class User(Base):
     address = Column(String, nullable=True)
     role = Column(Enum(UserRole), default=UserRole.customer)
 
+    # NEW: Driver Location & Status
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    is_active = Column(Boolean, default=True)  # "Clocked in" status
+
     stores = relationship("Store", back_populates="owner")
     orders = relationship("Order", foreign_keys="Order.user_id", back_populates="user")
     deliveries = relationship("Order", foreign_keys="Order.driver_id", back_populates="driver")
@@ -39,6 +44,7 @@ class Store(Base):
     category = Column(String)
     description = Column(String, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    orders = relationship("Order", back_populates="store")
 
     owner = relationship("User", back_populates="stores")
     products = relationship("Product", back_populates="store", cascade="all, delete-orphan")
@@ -46,7 +52,7 @@ class Store(Base):
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True, index=True)
-    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False)
+    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
     price = Column(Float, nullable=False)
     stock = Column(Integer, default=0)
@@ -56,11 +62,13 @@ class Product(Base):
 class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id")) # customer
-    driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # driver
+    user_id = Column(Integer, ForeignKey("users.id"), index=True) # customer
+    driver_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # driver
     status = Column(Enum(OrderStatus), default=OrderStatus.pending)
     assigned_at = Column(DateTime(timezone=True), nullable=True)
     total_price = Column(Float, default=0.0) # optional, can be computed
+    # NEW: Link Order to a specific Store
+    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True)
 
     user = relationship("User", foreign_keys=[user_id], back_populates="orders")
     driver = relationship("User", foreign_keys=[driver_id], back_populates="deliveries")
@@ -70,6 +78,8 @@ class Order(Base):
         cascade="all, delete-orphan",
         lazy="joined"
         )
+    # NEW: Relationship
+    store = relationship("Store", back_populates="orders")
     
     @property
     def computed_total_price(self):
@@ -87,8 +97,8 @@ class Order(Base):
 class OrderItem(Base):
     __tablename__ = "order_items"
     id = Column(Integer, primary_key=True, index=True)
-    order_id = Column(Integer, ForeignKey("orders.id"))
-    product_id = Column(Integer, ForeignKey("products.id"))
+    order_id = Column(Integer, ForeignKey("orders.id"), index=True)
+    product_id = Column(Integer, ForeignKey("products.id"), index=True)
     quantity = Column(Integer, nullable=False)
     price_at_purchase = Column(Float, nullable=False)
 

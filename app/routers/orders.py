@@ -14,22 +14,38 @@ router = APIRouter(prefix="/orders", tags=["orders"])
 logger = get_logger(__name__)
 
 
-@router.post("/", response_model=order_schema.OrderOut)
+@router.post("/", response_model=List[order_schema.OrderOut])
 async def create_order(
     order: order_schema.OrderCreate,
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:create"))
-    ):
-    logger.info("Creating new order", user_id=current_user.id, items_count=len(order.items))
+):
+    logger.info("Processing cart", user_id=current_user.id, items_count=len(order.items))
+    
     svc = AsyncOrderService(db)
-    new_order = await svc.create_order(order, current_user)
-    # Log successful order creation
-    log_business_event("order_created", current_user.id,
-                      order_id=new_order.id, total_price=new_order.total_price, items_count=len(new_order.items))
-    logger.info("Order created successfully", order_id=new_order.id,
-               user_id=current_user.id, total_price=new_order.total_price)
-    return new_order
+    # 1. Rename variable to plural because it's now a list
+    new_orders = await svc.create_order(order, current_user)
+    
+    # 2. Fix the Logging Logic (The Crash Fix)
+    # You must loop through the orders to log them individually
+    for created_order in new_orders:
+        log_business_event(
+            "order_created", 
+            current_user.id,
+            order_id=created_order.id, 
+            total_price=created_order.total_price, 
+            items_count=len(created_order.items)
+        )
+        
+        logger.info(
+            "Sub-order created successfully", 
+            order_id=created_order.id,
+            store_id=created_order.store_id, # Good to log which store got the order
+            user_id=current_user.id
+        )
 
+    # 3. Return the list
+    return new_orders
 
 @router.get("/me", response_model=List[order_schema.OrderOut])
 async def get_my_orders(

@@ -56,6 +56,16 @@ async def health_check(db: AsyncSession = Depends(database.get_db)):
         except Exception as e:
             response["checks"]["database"] = f"unhealthy: {str(e)}"
             response["status"] = "degraded"
+
+        # Include connection pool status if available
+        try:
+            pool = getattr(database.engine.sync_engine, "pool", None)
+            if pool is not None:
+                response["checks"]["db_pool"] = pool.status()
+            else:
+                response["checks"]["db_pool"] = "unknown"
+        except Exception:
+            response["checks"]["db_pool"] = "unavailable"
         
         return response
         
@@ -70,6 +80,13 @@ async def readiness_check(db: AsyncSession = Depends(database.get_db)):
         # Test database connectivity and basic queries
         await db.execute(text("SELECT 1"))
 
+        # Check pool status as an additional readiness indicator
+        try:
+            pool = getattr(database.engine.sync_engine, "pool", None)
+            pool_status = pool.status() if pool is not None else "unknown"
+        except Exception:
+            pool_status = "unavailable"
+
         # Check if core tables exist; if COUNT fails (no tables yet) treat as zero
         try:
             result = await db.execute(text("SELECT COUNT(*) FROM users"))
@@ -81,6 +98,7 @@ async def readiness_check(db: AsyncSession = Depends(database.get_db)):
             "status": "ready",
             "message": "Service is ready to accept traffic",
             "database": "connected",
+            "db_pool_status": pool_status,
             "user_count": user_count
         }
     except Exception:
