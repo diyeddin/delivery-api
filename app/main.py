@@ -5,10 +5,10 @@ from app.db import models, database
 from app.routers import auth, users, stores, products, orders, drivers, admin
 from app.core.logging import setup_logging, get_logger, LoggingMiddleware
 from app.middleware.idempotency import IdempotencyMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 import time
 import os
-
 # Setup logging
 setup_logging()
 logger = get_logger(__name__)
@@ -19,6 +19,20 @@ app = FastAPI(
     description="A comprehensive API for mall delivery services",
     version="1.0.0",
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
+)
+
+origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins, # Use the list defined above
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Add logging middleware

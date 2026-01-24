@@ -51,6 +51,7 @@ services:
       - ENVIRONMENT=development
       - LOG_LEVEL=DEBUG
       - REDIS_URL=redis://redis:6379/0
+      - BACKEND_CORS_ORIGINS=["http://localhost:5173", "http://127.0.0.1:5173"]
     volumes:
       - .:/app
       - /app/__pycache__

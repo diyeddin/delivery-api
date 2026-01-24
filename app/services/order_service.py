@@ -120,6 +120,17 @@ class AsyncOrderService:
                      pass 
 
         return order
+    
+    async def get_available_orders(self) -> List[models.Order]:
+        """Fetch orders ready for driver pickup."""
+        stmt = (
+            select(models.Order)
+            # CRITICAL: This line loads the items. If missing -> 422 Error.
+            .options(selectinload(models.Order.items)) 
+            .where(models.Order.status == models.OrderStatus.pending)
+        )
+        result = await self.db.execute(stmt)
+        return result.unique().scalars().all()
 
     async def get_user_orders(self, current_user: models.User):
         stmt = (
