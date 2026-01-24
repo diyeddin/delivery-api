@@ -1,101 +1,78 @@
 # app/routers/products.py
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from app.db import models, database
 from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
+from app.services.product_service import AsyncProductService
+from app.utils.exceptions import NotFoundError
 from app.utils.dependencies import require_scope
 
 router = APIRouter(prefix="/products", tags=["products"])
 
 @router.post("/", response_model=ProductOut)
-def create_product(
+async def create_product(
     payload: ProductCreate,
-    db: Session = Depends(database.get_db),
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("products:manage"))
     ):
-    store = db.query(models.Store).filter(models.Store.id == payload.store_id).first()
-    if not store:
+    svc = AsyncProductService(db)
+    try:
+        return await svc.create_product(payload, current_user)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail="Store not found")
-    
-    # Store owners can only create products in their own stores
-    if current_user.role == models.UserRole.store_owner:
-        if store.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="You can only create products in your own stores")
-    
-    p = models.Product(**payload.model_dump())
-    db.add(p); db.commit(); db.refresh(p)
-    return p
 
 @router.get("/", response_model=List[ProductOut])
-def list_products(db: Session = Depends(database.get_db)):
-    return db.query(models.Product).all()
+async def list_products(db: AsyncSession = Depends(database.get_db)):
+    svc = AsyncProductService(db)
+    return await svc.get_all_products()
 
 
 @router.get("/my-products", response_model=List[ProductOut])
-def get_my_products(
-    db: Session = Depends(database.get_db),
+async def get_my_products(
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("products:manage"))
 ):
     """Get products from stores owned by the current store owner."""
-    return db.query(models.Product).join(models.Store).filter(
-        models.Store.owner_id == current_user.id
-    ).all()
+    svc = AsyncProductService(db)
+    return await svc.get_user_products(current_user)
 
 
 @router.get("/{product_id}", response_model=ProductOut)
-def get_product(product_id: int, db: Session = Depends(database.get_db)):
-    p = db.get(models.Product, product_id)
-    if not p:
+async def get_product(product_id: int, db: AsyncSession = Depends(database.get_db)):
+    svc = AsyncProductService(db)
+    try:
+        return await svc.get_product(product_id)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail="Product not found")
-    return p
 
 @router.put("/{product_id}", response_model=ProductOut)
-def update_product(
+async def update_product(
     product_id: int,
     payload: ProductUpdate,
-    db: Session = Depends(database.get_db),
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("products:manage"))
     ):
-    p = db.get(models.Product, product_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Store owners can only update products in their own stores
-    if current_user.role == models.UserRole.store_owner:
-        if p.store.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="You can only update products in your own stores")
-    
-    update_data = payload.model_dump(exclude_unset=True)
-    if "store_id" in update_data:
-        s = db.get(models.Store, update_data["store_id"])
-        if not s:
+    svc = AsyncProductService(db)
+    try:
+        return await svc.update_product(product_id, payload, current_user)
+    except NotFoundError as e:
+        # Update may fail because product or new store not found
+        msg = str(e)
+        if "Store" in msg:
             raise HTTPException(status_code=404, detail="New store not found")
-        
-        # Store owners can only move products to their own stores
-        if current_user.role == models.UserRole.store_owner:
-            if s.owner_id != current_user.id:
-                raise HTTPException(status_code=403, detail="You can only move products to your own stores")
-    
-    for k, v in update_data.items():
-        setattr(p, k, v)
-    db.commit(); db.refresh(p)
-    return p
+        raise HTTPException(status_code=404, detail="Product not found")
 
 @router.delete("/{product_id}")
-def delete_product(
+async def delete_product(
     product_id: int,
-    db: Session = Depends(database.get_db),
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("products:manage"))
     ):
-    p = db.get(models.Product, product_id)
-    if not p:
+    svc = AsyncProductService(db)
+    try:
+        await svc.delete_product(product_id, current_user)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail="Product not found")
-    
-    # Store owners can only delete products from their own stores
-    if current_user.role == models.UserRole.store_owner:
-        if p.store.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="You can only delete products from your own stores")
-    
-    db.delete(p); db.commit()
     return {"detail": "Product deleted"}

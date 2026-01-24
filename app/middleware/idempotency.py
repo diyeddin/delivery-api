@@ -6,6 +6,9 @@ import json
 from datetime import datetime, timezone
 
 from app.db import database, models
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+import inspect
 
 
 class IdempotencyMiddleware(BaseHTTPMiddleware):
@@ -36,32 +39,45 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
         except Exception:
             get_db_override = None
 
-        if get_db_override:
-            db = next(get_db_override())
-        else:
-            db = next(database.get_db())
+        # Obtain generator from override or default dependency
+        gen = None
+        async_gen = False
         try:
-            existing = db.query(models.IdempotencyKey).filter(models.IdempotencyKey.key_hash == key_hash).first()
+            if get_db_override:
+                gen = get_db_override()
+            else:
+                gen = database.get_db()
+
+            if inspect.isasyncgen(gen):
+                # async generator -> await next to get session
+                db = await gen.__anext__()
+                async_gen = True
+            else:
+                db = next(gen)
+
+            # Check for existing cache entry using sync or async session APIs
+            existing = None
+            if isinstance(db, AsyncSession):
+                res = await db.execute(select(models.IdempotencyKey).where(models.IdempotencyKey.key_hash == key_hash))
+                existing = res.scalar_one_or_none()
+            else:
+                existing = db.query(models.IdempotencyKey).filter(models.IdempotencyKey.key_hash == key_hash).first()
+
             if existing:
-                # return cached response
                 try:
                     payload = json.loads(existing.response_payload)
                     return JSONResponse(content=payload.get("body"), status_code=payload.get("status_code", 200))
                 except Exception:
-                    # If cached payload corrupt, proceed to process request
                     pass
 
-            # Not cached: process request and cache response
+            # Not cached: process request
             response = await call_next(request)
 
-            # Safely read response body. Some Response implementations
-            # expose a body attribute while streaming responses expose
-            # body_iterator which must be consumed asynchronously.
+            # Safely read response body
             body_bytes = b""
             if hasattr(response, "body") and response.body is not None:
                 body_bytes = response.body
             else:
-                # consume iterator (works for StreamingResponse)
                 try:
                     chunks = []
                     async for chunk in response.body_iterator:
@@ -76,26 +92,41 @@ class IdempotencyMiddleware(BaseHTTPMiddleware):
             except Exception:
                 body_json = body_bytes.decode(errors="ignore")
 
-            cache_payload = {
-                "status_code": response.status_code,
-                "body": body_json,
-            }
+            cache_payload = {"status_code": response.status_code, "body": body_json}
 
             record = models.IdempotencyKey(
                 key_hash=key_hash,
                 response_payload=json.dumps(cache_payload),
                 created_at=datetime.now(timezone.utc),
             )
-            try:
-                db.add(record)
-                db.commit()
-            except Exception:
-                db.rollback()
 
-            # Return a fresh JSONResponse built from the cached payload
+            try:
+                if isinstance(db, AsyncSession):
+                    db.add(record)
+                    await db.commit()
+                else:
+                    db.add(record)
+                    db.commit()
+            except Exception:
+                try:
+                    if isinstance(db, AsyncSession):
+                        await db.rollback()
+                    else:
+                        db.rollback()
+                except Exception:
+                    pass
+
             return JSONResponse(content=cache_payload["body"], status_code=cache_payload["status_code"])
         finally:
+            # close session and close generator appropriately
             try:
-                db.close()
+                if gen is not None:
+                    if async_gen:
+                        await gen.aclose()
+                    else:
+                        try:
+                            gen.close()
+                        except Exception:
+                            pass
             except Exception:
                 pass

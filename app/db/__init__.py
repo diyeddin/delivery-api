@@ -1,1 +1,1 @@
-from .database import engine, SessionLocal, Base
+from .database import engine, AsyncSessionLocal as SessionLocal, Base

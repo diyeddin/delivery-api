@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException
-from sqlalchemy.orm import Session
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
 from app.routers import auth, users, stores, products, orders, drivers, admin
 from app.core.logging import setup_logging, get_logger, LoggingMiddleware
@@ -29,7 +29,7 @@ logger.info("Application starting up", environment=os.getenv("ENVIRONMENT", "unk
 
 
 @app.get("/health")
-def health_check(db: Session = Depends(database.get_db)):
+async def health_check(db: AsyncSession = Depends(database.get_db)):
     """Enhanced health check endpoint with database connectivity"""
     try:
         # Get current timestamp
@@ -46,8 +46,9 @@ def health_check(db: Session = Depends(database.get_db)):
         
         # Test database connectivity using injected session
         try:
-            result = db.execute(text("SELECT 1")).fetchone()
-            if result and result[0] == 1:
+            result = await db.execute(text("SELECT 1"))
+            row = result.fetchone()
+            if row and row[0] == 1:
                 response["checks"]["database"] = "healthy"
             else:
                 response["checks"]["database"] = "unhealthy"
@@ -63,15 +64,16 @@ def health_check(db: Session = Depends(database.get_db)):
 
 
 @app.get("/health/ready")
-def readiness_check(db: Session = Depends(database.get_db)):
+async def readiness_check(db: AsyncSession = Depends(database.get_db)):
     """Readiness check for Kubernetes/container orchestration"""
     try:
         # Test database connectivity and basic queries
-        db.execute(text("SELECT 1")).fetchone()
+        await db.execute(text("SELECT 1"))
 
         # Check if core tables exist; if COUNT fails (no tables yet) treat as zero
         try:
-            user_count = db.execute(text("SELECT COUNT(*) FROM users")).fetchone()[0]
+            result = await db.execute(text("SELECT COUNT(*) FROM users"))
+            user_count = result.scalar_one()
         except Exception:
             user_count = 0
 

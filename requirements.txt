@@ -9,6 +9,8 @@ passlib[bcrypt]
 python-multipart
 pydantic-settings
 pydantic[email]
+asyncpg
+sqlalchemy[asyncio]
 # Logging dependencies
 structlog
 python-json-logger

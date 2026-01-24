@@ -1,6 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
+from app.services.store_service import AsyncStoreService
+from app.utils.exceptions import NotFoundError
 from app.schemas.store import StoreCreate, StoreUpdate, StoreOut
 from typing import List
 from app.utils.dependencies import require_scope
@@ -8,101 +12,85 @@ from app.utils.dependencies import require_scope
 router = APIRouter(prefix="/stores", tags=["stores"])
 
 @router.post("/", response_model=StoreOut)
-def create_store(
+async def create_store(
     store: StoreCreate,
-    db: Session = Depends(database.get_db),
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("stores:manage"))
     ):
     store_data = store.model_dump()
-    
+
     # Set the owner_id to the current user if they're a store_owner
     if current_user.role == models.UserRole.store_owner:
         store_data["owner_id"] = current_user.id
     # Admins can create stores without setting ownership (owner_id = None)
-    
-    db_store = models.Store(**store_data)
-    db.add(db_store)
-    db.commit()
-    db.refresh(db_store)
-    return db_store
+
+    svc = AsyncStoreService(db)
+    return await svc.create_store(store, current_user)
 
 
 @router.get("/", response_model=List[StoreOut])
-def list_stores(db: Session = Depends(database.get_db)):
-    return db.query(models.Store).all()
+async def list_stores(db: AsyncSession = Depends(database.get_db)):
+    svc = AsyncStoreService(db)
+    return await svc.get_all_stores()
 
 
 @router.get("/my-stores", response_model=List[StoreOut])
-def get_my_stores(
-    db: Session = Depends(database.get_db),
+async def get_my_stores(
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("stores:manage"))
 ):
     """Get stores owned by the current store owner."""
-    return db.query(models.Store).filter(models.Store.owner_id == current_user.id).all()
+    svc = AsyncStoreService(db)
+    return await svc.get_stores_by_owner(current_user.id)
 
 
 @router.get("/{store_id}", response_model=StoreOut)
-def get_store(store_id: int, db: Session = Depends(database.get_db)):
-    store = db.query(models.Store).filter(models.Store.id == store_id).first()
-    if not store:
+async def get_store(store_id: int, db: AsyncSession = Depends(database.get_db)):
+    svc = AsyncStoreService(db)
+    try:
+        return await svc.get_store(store_id)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail="Store not found")
-    return store
 
 
 @router.put("/{store_id}", response_model=StoreOut)
-def update_store(
+async def update_store(
     store_id: int,
     update: StoreUpdate,
-    db: Session = Depends(database.get_db),
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("stores:manage"))
     ):
-    db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
-    if not db_store:
+    svc = AsyncStoreService(db)
+    try:
+        return await svc.update_store(store_id, update, current_user)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail="Store not found")
-    
-    # Store owners can only update their own stores
-    if current_user.role == models.UserRole.store_owner:
-        if db_store.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="You can only update your own stores")
-    
-    for key, value in update.model_dump(exclude_unset=True).items():
-        setattr(db_store, key, value)
-    db.commit()
-    db.refresh(db_store)
-    return db_store
 
 
 @router.delete("/{store_id}")
-def delete_store(
+async def delete_store(
     store_id: int,
-    db: Session = Depends(database.get_db),
+    db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("stores:manage"))
     ):
-    db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
-    if not db_store:
+    svc = AsyncStoreService(db)
+    try:
+        await svc.delete_store(store_id, current_user)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail="Store not found")
-    
-    # Store owners can only delete their own stores
-    if current_user.role == models.UserRole.store_owner:
-        if db_store.owner_id != current_user.id:
-            raise HTTPException(status_code=403, detail="You can only delete your own stores")
-    
-    db.delete(db_store)
-    db.commit()
     return {"detail": "Store deleted"}
 
 
 @router.get("/{store_id}/products")
-def get_store_products(
+async def get_store_products(
     store_id: int,
-    db: Session = Depends(database.get_db)
+    db: AsyncSession = Depends(database.get_db)
 ):
     """Get all products for a specific store"""
     # Check if store exists
-    store = db.query(models.Store).filter(models.Store.id == store_id).first()
-    if not store:
+    svc = AsyncStoreService(db)
+    try:
+        await svc.get_store(store_id)
+    except NotFoundError:
         raise HTTPException(status_code=404, detail="Store not found")
-    
-    # Get all products for this store
-    products = db.query(models.Product).filter(models.Product.store_id == store_id).all()
-    return products
+    return await svc.get_store_products(store_id)

@@ -160,7 +160,7 @@ def require_scope(required_scope: str):
 **Tasks:**
 - [x] Define scope matrix for all roles
 - [x] Update `create_access_token` to include scopes
-- [ ] Replace `require_role` with `require_scope` in routers
+- [x] Replace `require_role` with `require_scope` in routers
 - [x] Add scope verification tests
 - [ ] Document scopes in OpenAPI security schemes
 
@@ -200,8 +200,8 @@ async def get_db():
 ```
 
 **Tasks:**
-- [ ] Install `asyncpg` and `sqlalchemy[asyncio]`
-- [ ] Update `DATABASE_URL` to use `postgresql+asyncpg://`
+- [x] Install `asyncpg` and `sqlalchemy[asyncio]`
+- [x] Update `DATABASE_URL` to use `postgresql+asyncpg://`
 - [ ] Convert all `db.query()` to `await db.execute(select(...))`
 - [ ] Update Alembic to use async engine
 - [ ] Load test async vs sync performance (target: 3x throughput)
