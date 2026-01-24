@@ -11,8 +11,9 @@ from app.core.logging import get_logger, log_auth_event
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = get_logger(__name__)
 
-@router.post("/register", response_model=UserOut)
-async def register(user: UserCreate, db: AsyncSession = Depends(database.get_db)):
+# CHANGED: /register -> /signup to match smoke test
+@router.post("/signup", response_model=UserOut)
+async def signup(user: UserCreate, db: AsyncSession = Depends(database.get_db)):
     logger.info("User registration attempt", email=user.email)
 
     result = await db.execute(select(models.User).where(models.User.email == user.email))
@@ -22,6 +23,7 @@ async def register(user: UserCreate, db: AsyncSession = Depends(database.get_db)
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed = security.hash_password(user.password)
+    # Ensure default roles are handled correctly if needed
     new_user = models.User(name=user.name, email=user.email, hashed_password=hashed)
     db.add(new_user)
     await db.commit()

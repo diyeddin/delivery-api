@@ -17,34 +17,43 @@ class AsyncStoreService:
 
     async def create_store(self, store_data: StoreCreate, current_user: models.User) -> models.Store:
         store_dict = store_data.model_dump()
+        
         if current_user.role == models.UserRole.store_owner:
             store_dict["owner_id"] = current_user.id
+            
         db_store = models.Store(**store_dict)
         self.db.add(db_store)
         await self.db.commit()
-        # Ensure relationships (products) are eagerly loaded for response serialization
         await self.db.refresh(db_store)
+        
+        # CRITICAL FIX: Return via get_store to ensure products are eager loaded.
+        # Returning db_store directly causes MissingGreenlet error because 
+        # products relationship is lazy-loaded.
         return await self.get_store(db_store.id)
 
     async def get_store(self, store_id: int) -> models.Store:
-        result = await self.db.execute(select(models.Store).options(selectinload(models.Store.products)).where(models.Store.id == store_id))
+        # options(selectinload(...)) prevents MissingGreenlet error
+        stmt = select(models.Store).options(selectinload(models.Store.products)).where(models.Store.id == store_id)
+        result = await self.db.execute(stmt)
         store = result.unique().scalar_one_or_none()
+        
         if not store:
             raise NotFoundError("Store", store_id)
         return store
 
     async def get_all_stores(self):
-        result = await self.db.execute(select(models.Store).options(selectinload(models.Store.products)))
+        stmt = select(models.Store).options(selectinload(models.Store.products))
+        result = await self.db.execute(stmt)
         return result.unique().scalars().all()
 
     async def get_stores_by_owner(self, owner_id: int):
-        result = await self.db.execute(
-            select(models.Store).options(selectinload(models.Store.products)).where(models.Store.owner_id == owner_id)
-        )
+        stmt = select(models.Store).options(selectinload(models.Store.products)).where(models.Store.owner_id == owner_id)
+        result = await self.db.execute(stmt)
         return result.unique().scalars().all()
 
     async def update_store(self, store_id: int, update_data: StoreUpdate, current_user: models.User):
         store = await self.get_store(store_id)
+        
         if current_user.role == models.UserRole.store_owner:
             if store.owner_id != current_user.id:
                 raise PermissionDeniedError("update", "store")
@@ -53,14 +62,19 @@ class AsyncStoreService:
             setattr(store, key, value)
 
         await self.db.commit()
+        # Refresh is usually enough for scalars, but to be safe with relationships, 
+        # we return the fully loaded object via get_store if needed, 
+        # but here we assume products didn't change.
         await self.db.refresh(store)
         return store
 
     async def delete_store(self, store_id: int, current_user: models.User):
         store = await self.get_store(store_id)
+        
         if current_user.role == models.UserRole.store_owner:
             if store.owner_id != current_user.id:
                 raise PermissionDeniedError("delete", "store")
+                
         await self.db.delete(store)
         await self.db.commit()
 

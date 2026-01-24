@@ -5,6 +5,7 @@ from app.db import models, database
 from app.routers import auth, users, stores, products, orders, drivers, admin
 from app.core.logging import setup_logging, get_logger, LoggingMiddleware
 from app.middleware.idempotency import IdempotencyMiddleware
+from app.core.config import settings
 import time
 import os
 
@@ -16,7 +17,8 @@ logger = get_logger(__name__)
 app = FastAPI(
     title="Mall Delivery API",
     description="A comprehensive API for mall delivery services",
-    version="1.0.0"
+    version="1.0.0",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
 # Add logging middleware
@@ -136,14 +138,18 @@ def root():
         }
     }
 
-# Include routers
-app.include_router(auth.router)
-app.include_router(users.router)
-app.include_router(products.router)
-app.include_router(stores.router)
-app.include_router(orders.router)
-app.include_router(drivers.router)
-app.include_router(admin.router)
+# CRITICAL FIX: Mount routers under /api/v1
+# Note: The routers themselves already have prefixes (e.g. prefix="/auth").
+# When we include them, we PREPEND the API version.
+# Result: /api/v1 + /auth + /signup
+
+app.include_router(auth.router, prefix=settings.API_V1_STR)
+app.include_router(users.router, prefix=settings.API_V1_STR)
+app.include_router(stores.router, prefix=settings.API_V1_STR)
+app.include_router(products.router, prefix=settings.API_V1_STR)
+app.include_router(orders.router, prefix=settings.API_V1_STR)
+app.include_router(drivers.router, prefix=settings.API_V1_STR)
+app.include_router(admin.router, prefix=settings.API_V1_STR)
 
 # Create database tables
 import sys as _sys

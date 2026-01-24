@@ -11,6 +11,9 @@ class OrderCreate(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     items: List[OrderItemCreate] = Field(..., min_length=1, max_length=20, description="Order must have 1-20 items")
     
+    # NEW: Allow users to specify a delivery address (optional, falls back to profile default)
+    delivery_address: Optional[str] = Field(None, min_length=5, max_length=255, description="Delivery address if different from profile")
+    
     @field_validator('items')
     @classmethod
     def validate_unique_products(cls, v):
@@ -33,14 +36,17 @@ class OrderOut(BaseModel):
     
     id: int
     user_id: int
-    # CRITICAL ADDITION: Needed for multi-store logic
     store_id: int 
     driver_id: Optional[int] = None
     status: str
     total_price: float = Field(..., ge=0, description="Total price must be non-negative")
-    # HELPFUL ADDITION: Needed for frontend to show "Time Remaining" before timeout
     assigned_at: Optional[datetime] = None 
+    
+    # NEW: Expose the address in the response
+    delivery_address: Optional[str] = None
+    
     items: List[OrderItemOut] = Field(..., min_length=1, description="Order must have at least one item")
+
 class OrderStatusUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     status: str = Field(..., description="New order status")
