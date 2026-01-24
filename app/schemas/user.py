@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
 from typing import Optional
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     email: EmailStr = Field(..., description="Valid email address")
     password: str = Field(..., min_length=8, max_length=100, description="Password must be 8-100 characters")
     name: Optional[str] = Field(None, min_length=1, max_length=100, description="User full name")
@@ -29,7 +30,7 @@ class UserCreate(BaseModel):
         return v.strip() if v else v
 
 class UserOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
     
     id: int
     email: EmailStr
@@ -37,6 +38,7 @@ class UserOut(BaseModel):
     role: str
 
 class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     
     @field_validator('name')
@@ -47,5 +49,6 @@ class UserUpdate(BaseModel):
         return v.strip() if v else v
 
 class Token(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     access_token: str
     token_type: str = "bearer"

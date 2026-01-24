@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import Optional
 
 class ProductBase(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     name: str = Field(..., min_length=1, max_length=200, description="Product name")
     price: float = Field(..., gt=0, description="Product price must be positive")
     stock: int = Field(default=0, ge=0, description="Stock quantity must be non-negative")
@@ -14,9 +15,11 @@ class ProductBase(BaseModel):
         return v.strip()
 
 class ProductCreate(ProductBase):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     store_id: int = Field(..., gt=0, description="Store ID must be positive")
 
 class ProductUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     price: Optional[float] = Field(None, gt=0)
     stock: Optional[int] = Field(None, ge=0)
@@ -30,7 +33,7 @@ class ProductUpdate(BaseModel):
         return v.strip() if v else v
 
 class ProductOut(ProductBase):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
     
     id: int
     store_id: int   # don't include the full store to avoid recursion

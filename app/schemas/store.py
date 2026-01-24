@@ -3,6 +3,7 @@ from typing import List, Optional
 from app.schemas.product import ProductOut  # import product schema
 
 class StoreBase(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
@@ -16,9 +17,11 @@ class StoreBase(BaseModel):
 
 class StoreCreate(StoreBase):
     # owner_id will be set automatically from the current user
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     pass
 
 class StoreUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     name: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
@@ -31,7 +34,7 @@ class StoreUpdate(BaseModel):
         return v
 
 class StoreOut(StoreBase):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
     
     id: int
     owner_id: Optional[int] = None

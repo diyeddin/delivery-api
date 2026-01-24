@@ -119,10 +119,10 @@ class OrderCreate(BaseModel):
 ```
 
 **Tasks:**
-- [ ] Add `extra='forbid'` to all request schemas
-- [ ] Add `frozen=True` to prevent mutation attacks
-- [ ] Update integration tests to verify rejection of extra fields
-- [ ] Document breaking change in API changelog
+    - [x] Add `extra='forbid'` to all request schemas
+    - [x] Add `frozen=True` to prevent mutation attacks
+    - [x] Update integration tests to verify rejection of extra fields
+    - [ ] Document breaking change in API changelog
 
 ---
 

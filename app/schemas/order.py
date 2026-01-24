@@ -2,10 +2,12 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Optional
 
 class OrderItemCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     product_id: int = Field(..., gt=0, description="Product ID must be positive")
     quantity: int = Field(..., gt=0, le=100, description="Quantity must be positive and not exceed 100")
 
 class OrderCreate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     items: List[OrderItemCreate] = Field(..., min_length=1, max_length=20, description="Order must have 1-20 items")
     
     @field_validator('items')
@@ -18,7 +20,7 @@ class OrderCreate(BaseModel):
         return v
 
 class OrderItemOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
     
     id: int
     product_id: int
@@ -26,7 +28,7 @@ class OrderItemOut(BaseModel):
     price_at_purchase: float
 
 class OrderOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
     
     id: int
     user_id: int
@@ -36,6 +38,7 @@ class OrderOut(BaseModel):
     items: List[OrderItemOut] = Field(..., min_length=1, description="Order must have at least one item")
 
 class OrderStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     status: str = Field(..., description="New order status")
     
     @field_validator('status')
