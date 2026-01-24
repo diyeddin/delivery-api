@@ -147,9 +147,3 @@ app.include_router(admin.router)
 
 # Create database tables
 import sys as _sys
-
-# Avoid creating database tables at import time during test runs (pytest imports the package)
-if "pytest" not in _sys.modules:
-    models.Base.metadata.create_all(bind=database.engine)
-else:
-    logger.info("Skipping metadata.create_all during pytest import")

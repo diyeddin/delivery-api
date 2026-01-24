@@ -54,7 +54,6 @@ services:
     volumes:
       - .:/app
       - /app/__pycache__
-      - /app/.pytest_cache
     depends_on:
       db:
         condition: service_healthy

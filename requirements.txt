@@ -27,11 +27,11 @@ python-json-logger
 requests
 
 # Testing
-pytest
-pytest-asyncio
-httpx
-factory-boy
-pytest-cov
+# pytest
+# pytest-asyncio
+# httpx
+# factory-boy
+# pytest-cov
 
 # Background Tasks
 celery[redis]>=5.3.0
