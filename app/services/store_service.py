@@ -16,6 +16,11 @@ class AsyncStoreService:
         self.db = db
 
     async def create_store(self, store_data: StoreCreate, current_user: models.User) -> models.Store:
+        # 1. Enforce Single Store Policy
+        existing_stores = await self.get_stores_by_owner(current_user.id)
+        if len(existing_stores) > 0:
+            raise PermissionDeniedError("create", "more than one store. You are limited to 1 store.")
+        
         store_dict = store_data.model_dump()
         
         if current_user.role == models.UserRole.store_owner:
