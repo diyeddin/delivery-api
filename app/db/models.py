@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum, UniqueConstraint, DateTime
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 import enum
+from datetime import datetime, timezone, timedelta
 
 class OrderStatus(str, enum.Enum):
     pending = "pending"
@@ -58,6 +59,7 @@ class Order(Base):
     user_id = Column(Integer, ForeignKey("users.id")) # customer
     driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # driver
     status = Column(Enum(OrderStatus), default=OrderStatus.pending)
+    assigned_at = Column(DateTime(timezone=True), nullable=True)
     total_price = Column(Float, default=0.0) # optional, can be computed
 
     user = relationship("User", foreign_keys=[user_id], back_populates="orders")
@@ -72,6 +74,15 @@ class Order(Base):
     @property
     def computed_total_price(self):
         return sum(item.price_at_purchase * item.quantity for item in self.items)
+
+    @property
+    def assignment_expired(self) -> bool:
+        """Return True when the order was assigned more than 10 minutes ago and still assigned."""
+        if self.status != OrderStatus.assigned:
+            return False
+        if not self.assigned_at:
+            return True
+        return (datetime.now(timezone.utc) - self.assigned_at) > timedelta(minutes=10)
 
 class OrderItem(Base):
     __tablename__ = "order_items"

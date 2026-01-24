@@ -7,6 +7,8 @@ from app.db import models
 from app.schemas.order import OrderCreate
 from app.utils.exceptions import NotFoundError, BadRequestError, InsufficientStockError
 from app.services.product_service import ProductService
+from app.utils.exceptions import ConflictError
+from datetime import datetime, timezone, timedelta
 
 
 class OrderService:
@@ -179,6 +181,99 @@ class OrderService:
         
         order.driver_id = driver_id
         order.status = models.OrderStatus.assigned
+        order.assigned_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(order)
         return order
+
+    def accept_order_atomic(self, order_id: int, driver_id: int) -> models.Order:
+        """Atomically accept an order using a row-level lock.
+
+        Criteria:
+        - Allow acceptance when status == confirmed and driver_id is NULL
+        - Allow reassignment when status == assigned but assigned_at is older than 10 minutes
+        Otherwise raise ConflictError.
+        """
+        # Begin a transaction (use nested if a transaction is already active)
+        if self.db.in_transaction():
+            trans_ctx = self.db.begin_nested()
+        else:
+            trans_ctx = self.db.begin()
+
+        modified = False
+        with trans_ctx:
+            order = (
+                self.db.query(models.Order)
+                .with_for_update()
+                .filter(models.Order.id == order_id)
+                .first()
+            )
+
+            if not order:
+                raise NotFoundError("Order", order_id)
+
+            now = datetime.now(timezone.utc)
+            expiry_threshold = now - timedelta(minutes=10)
+
+            # Available if confirmed and not assigned
+            if order.status == models.OrderStatus.confirmed and not order.driver_id:
+                order.driver_id = driver_id
+                order.status = models.OrderStatus.assigned
+                order.assigned_at = now
+                modified = True
+
+            # Reassign if previously assigned but expired
+            elif order.status == models.OrderStatus.assigned:
+                assigned_at = order.assigned_at
+                # Normalize naive datetimes (e.g., SQLite) to UTC-aware for safe comparison
+                if assigned_at and assigned_at.tzinfo is None:
+                    assigned_at = assigned_at.replace(tzinfo=timezone.utc)
+
+                if not assigned_at or assigned_at <= expiry_threshold:
+                    order.driver_id = driver_id
+                    order.status = models.OrderStatus.assigned
+                    order.assigned_at = now
+                    modified = True
+                else:
+                    raise ConflictError("Order already actively assigned to another driver")
+
+            else:
+                # Otherwise not available for acceptance
+                raise ConflictError("Order not available for acceptance")
+
+        # After transaction block: if modified, commit and refresh for return
+        if modified:
+            try:
+                self.db.commit()
+            except Exception:
+                self.db.rollback()
+                raise
+            self.db.refresh(order)
+            return order
+
+    def check_stale_assignments(self) -> int:
+        """Find orders with expired assignments and revert them to confirmed state.
+
+        Returns the number of orders reverted.
+        """
+        now = datetime.now(timezone.utc)
+        expiry_threshold = now - timedelta(minutes=10)
+
+        stale_orders = (
+            self.db.query(models.Order)
+            .filter(
+                models.Order.status == models.OrderStatus.assigned,
+                models.Order.assigned_at <= expiry_threshold,
+            )
+            .all()
+        )
+
+        for order in stale_orders:
+            order.driver_id = None
+            order.status = models.OrderStatus.confirmed
+            order.assigned_at = None
+
+        if stale_orders:
+            self.db.commit()
+
+        return len(stale_orders)

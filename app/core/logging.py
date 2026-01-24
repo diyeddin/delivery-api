@@ -75,7 +75,19 @@ def setup_logging() -> None:
         logging_config["loggers"]["app"]["handlers"].append("file")
     
     # Apply logging configuration
-    logging.config.dictConfig(logging_config)
+    # Ensure log directory exists when file handler is configured
+    try:
+        if settings.ENVIRONMENT == "production":
+            import os
+            log_file = logging_config["handlers"]["file"]["filename"]
+            log_dir = os.path.dirname(log_file)
+            if log_dir and not os.path.exists(log_dir):
+                os.makedirs(log_dir, exist_ok=True)
+
+        logging.config.dictConfig(logging_config)
+    except Exception:
+        # Fallback: ensure at least console logging works in test/dev environments
+        logging.basicConfig(level=getattr(logging, settings.LOG_LEVEL, logging.INFO))
     
     # Configure structlog
     structlog.configure(
