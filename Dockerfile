@@ -21,12 +21,16 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
 # Copy project files
 COPY . .
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create logs directory and set permissions
+RUN mkdir -p /app/logs && chown -R appuser:appuser /app/logs
 RUN chown -R appuser:appuser /app
+
 USER appuser
 
 # Expose port
