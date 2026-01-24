@@ -6,26 +6,23 @@ services:
     image: postgres:15-alpine
     container_name: mall_delivery_db
     environment:
-      POSTGRES_DB: mall_delivery
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-    ports:
-      - "5432:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-mall_delivery}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - mall_network
 
-  # Redis Cache (optional, for future use)
+  # Redis (Critical for Celery & Idempotency)
   redis:
     image: redis:7-alpine
     container_name: mall_delivery_redis
-    ports:
-      - "6379:6379"
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -34,6 +31,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - mall_network
 
   # FastAPI Application
   api:
@@ -42,31 +41,59 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/mall_delivery
-      - SECRET_KEY=dev-secret-key-change-in-production-32-chars
-      - DEBUG=false
-      - ENVIRONMENT=production
-      - LOG_LEVEL=WARNING
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       - REDIS_URL=redis://redis:6379/0
-    volumes:
-      - .:/app
-      - /app/venv  # Exclude venv from mounting
+      - SECRET_KEY=${SECRET_KEY}
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    # PROD FIX: Use gunicorn or uvicorn workers, NO reload, NO volume mount of code
     command: >
       sh -c "
         alembic upgrade head &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
       "
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+    networks:
+      - mall_network
 
-  # Nginx Reverse Proxy (for production)
+  # Celery Worker (Executes the tasks)
+  worker:
+    build: .
+    container_name: mall_delivery_worker
+    command: celery -A app.tasks.celery_app worker --loglevel=info
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=${SECRET_KEY}
+    depends_on:
+      - api # Wait for migrations
+      - redis
+    networks:
+      - mall_network
+
+  # Celery Beat (Triggers the schedule)
+  beat:
+    build: .
+    container_name: mall_delivery_beat
+    command: celery -A app.tasks.celery_app beat --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - worker
+      - redis
+    networks:
+      - mall_network
+
+  # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
     container_name: mall_delivery_nginx
@@ -78,13 +105,13 @@ services:
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - api
-    profiles:
-      - production
+    networks:
+      - mall_network
 
 volumes:
   postgres_data:
   redis_data:
 
 networks:
-  default:
-    name: mall_delivery_network
+  mall_network:
+    driver: bridge

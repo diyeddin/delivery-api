@@ -1,8 +1,8 @@
 """
 Service layer package initialization.
 """
-from .store_service import StoreService
-from .product_service import ProductService
-from .order_service import OrderService
+from .store_service import AsyncStoreService
+from .product_service import AsyncProductService
+from .order_service import AsyncOrderService
 
-__all__ = ["StoreService", "ProductService", "OrderService"]
+__all__ = ["AsyncStoreService", "AsyncProductService", "AsyncOrderService"]

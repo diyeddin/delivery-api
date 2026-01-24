@@ -1,4 +1,4 @@
-# Main dependencies
+# Core Framework
 fastapi
 uvicorn[standard]
 sqlalchemy
@@ -11,18 +11,35 @@ pydantic-settings
 pydantic[email]
 asyncpg
 sqlalchemy[asyncio]
-# Logging dependencies
+
+# Async Utilities (CRITICAL for SQLAlchemy Async)
+greenlet
+
+# Logging & Observability
 structlog
 python-json-logger
+# prometheus-fastapi-instrumentator  # Phase 3.4: Metrics
 
-# HTTP requests (for health checks and testing)
+# Security & Reliability
+# slowapi                            # Phase 3.3: Rate Limiting
+
+# HTTP Clients
 requests
 
-# Testing dependencies
+# Testing
 pytest
 pytest-asyncio
 httpx
 factory-boy
 pytest-cov
+
+# Background Tasks
 celery[redis]>=5.3.0
 redis>=4.5.0
+
+# Development Tools
+watchdog[watchmedo]>=3.0.0
+
+# Phase 4
+# geoalchemy2
+# shapely
