@@ -4,6 +4,7 @@ from sqlalchemy import text
 from app.db import models, database
 from app.routers import auth, users, stores, products, orders, drivers, admin
 from app.core.logging import setup_logging, get_logger, LoggingMiddleware
+from app.middleware.idempotency import IdempotencyMiddleware
 import time
 import os
 
@@ -20,6 +21,8 @@ app = FastAPI(
 
 # Add logging middleware
 app.add_middleware(LoggingMiddleware)
+# Add idempotency middleware (will only act on POST /orders and /payments)
+app.add_middleware(IdempotencyMiddleware)
 
 # Log application startup
 logger.info("Application starting up", environment=os.getenv("ENVIRONMENT", "unknown"))

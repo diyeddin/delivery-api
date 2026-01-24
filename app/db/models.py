@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum, UniqueConstraint, DateTime
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, Enum, UniqueConstraint, DateTime, Text
 from sqlalchemy.orm import relationship
 from app.db.database import Base
 import enum
@@ -98,3 +98,10 @@ class OrderItem(Base):
     __table_args__ = (
         UniqueConstraint("order_id", "product_id", name="uq_order_product"),
         )
+
+
+class IdempotencyKey(Base):
+    __tablename__ = "idempotency_keys"
+    key_hash = Column(String(64), primary_key=True, index=True)
+    response_payload = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=datetime.now(timezone.utc))

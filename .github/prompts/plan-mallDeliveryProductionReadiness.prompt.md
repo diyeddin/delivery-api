@@ -48,10 +48,10 @@ async def accept_order_atomic(db: Session, order_id: int, driver_id: int):
 ```
 
 **Tasks:**
-- [ ] Add `SELECT ... FOR UPDATE` to order acceptance queries
-- [ ] Implement retry logic with exponential backoff for lock conflicts
-- [ ] Add integration tests for concurrent order acceptance
-- [ ] Update OpenAPI docs to reflect 409 Conflict responses
+- [x] Add `SELECT ... FOR UPDATE` to order acceptance queries
+- [x] Implement retry logic with exponential backoff for lock conflicts
+- [x] Add integration tests for concurrent order acceptance
+- [x] Update OpenAPI docs to reflect 409 Conflict responses
 
 ---
 
@@ -87,11 +87,11 @@ async def check_idempotency(
 ```
 
 **Tasks:**
-- [ ] Create `IdempotencyKey` model with (key_hash, response_json, created_at)
+- [x] Create `IdempotencyKey` model with (key_hash, response_json, created_at)
 - [ ] Add TTL cleanup job for old idempotency records (7 days)
-- [ ] Implement middleware for POST /orders and POST /payments
+- [x] Implement middleware for POST /orders and POST /payments
 - [ ] Add `Idempotency-Key` to OpenAPI schema
-- [ ] Write unit tests for duplicate request scenarios
+- [x] Write unit tests for duplicate request scenarios
 
 ---
 
