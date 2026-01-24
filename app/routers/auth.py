@@ -39,7 +39,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         log_auth_event("login", form_data.username, success=False, reason="invalid_credentials")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     
-    token = security.create_access_token({"sub": user.email})
+    token = security.create_access_token({"sub": user.email, "role": user.role.value})
     log_auth_event("login", user.email, success=True, user_id=user.id)
     logger.info("User logged in successfully", user_id=user.id, email=user.email)
     

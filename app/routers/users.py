@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db import models, database
-from app.utils.dependencies import get_current_user, require_role
+from app.utils.dependencies import get_current_user, require_scope
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -20,10 +20,9 @@ def update_user_role(
     user_id: int,
     role: models.UserRole,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_scope("users:manage"))
     ):
-    if current_user.role != models.UserRole.admin:
-        raise HTTPException(status_code=403, detail="Only admins can update roles")
+    # scope enforcement already validated via dependency
 
     user = db.query(models.User).filter(models.User.id == user_id).first()
     if not user:
@@ -36,9 +35,10 @@ def update_user_role(
 
 # test endpoints for role-based access control
 @router.get("/admin-only")
-def admin_only_route(current_user: models.User = Depends(require_role([models.UserRole.admin]))):
+def admin_only_route(current_user: models.User = Depends(require_scope("users:manage"))):
     return {"message": f"Hello Admin {current_user.name}"}
 
+
 @router.get("/driver-only")
-def driver_route(current_user: models.User = Depends(require_role([models.UserRole.driver]))):
+def driver_route(current_user: models.User = Depends(require_scope("location:update"))):
     return {"message": f"Hello Driver {current_user.name}"}

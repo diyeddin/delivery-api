@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.db import models, database
 from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_scope
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/products", tags=["products"])
 def create_product(
     payload: ProductCreate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("products:manage"))
     ):
     store = db.query(models.Store).filter(models.Store.id == payload.store_id).first()
     if not store:
@@ -35,7 +35,7 @@ def list_products(db: Session = Depends(database.get_db)):
 @router.get("/my-products", response_model=List[ProductOut])
 def get_my_products(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("products:manage"))
 ):
     """Get products from stores owned by the current store owner."""
     return db.query(models.Product).join(models.Store).filter(
@@ -55,7 +55,7 @@ def update_product(
     product_id: int,
     payload: ProductUpdate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("products:manage"))
     ):
     p = db.get(models.Product, product_id)
     if not p:
@@ -86,7 +86,7 @@ def update_product(
 def delete_product(
     product_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("products:manage"))
     ):
     p = db.get(models.Product, product_id)
     if not p:

@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 from app.db import database, models
 from app.schemas import order as order_schema
-from app.utils.dependencies import require_role
+from app.utils.dependencies import get_current_user, require_scope
 from app.core.logging import get_logger, log_business_event
 
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 def create_order(
     order: order_schema.OrderCreate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.customer]))
+    current_user: models.User = Depends(require_scope("orders:create"))
     ):
     logger.info("Creating new order", user_id=current_user.id, items_count=len(order.items))
     
@@ -65,7 +65,7 @@ def create_order(
 @router.get("/me", response_model=List[order_schema.OrderOut])
 def get_my_orders(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.customer]))
+    current_user: models.User = Depends(require_scope("orders:read_own"))
     ):
     """Get current user's orders (customers only)"""
     return db.query(models.Order).filter(models.Order.user_id == current_user.id).all()
@@ -74,7 +74,7 @@ def get_my_orders(
 @router.get("/", response_model=List[order_schema.OrderOut])
 def get_all_orders(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_scope("orders:read"))
     ):
     """Get all orders (admin only)"""
     return db.query(models.Order).all()
@@ -83,7 +83,7 @@ def get_all_orders(
 @router.get("/assigned-to-me", response_model=List[order_schema.OrderOut])
 def get_assigned_orders(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.driver]))
+    current_user: models.User = Depends(require_scope("orders:read"))
     ):
     """Get orders assigned to current driver"""
     return db.query(models.Order).filter(models.Order.driver_id == current_user.id).all()
@@ -92,7 +92,7 @@ def get_assigned_orders(
 @router.get("/my-store-orders", response_model=List[order_schema.OrderOut])
 def get_store_orders(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("orders:read_store"))
     ):
     """Get orders containing products from current store owner's stores"""
     # Get all stores owned by current user
@@ -110,7 +110,7 @@ def get_store_orders(
 def get_order(
     order_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.customer, models.UserRole.admin, models.UserRole.driver, models.UserRole.store_owner]))
+    current_user: models.User = Depends(get_current_user)
     ):
     """Get specific order with role-based access control"""
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
@@ -146,7 +146,7 @@ def update_status(
     order_id: int,
     new_status: str,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.driver, models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("orders:update_status"))
     ):
     """Update order status with role-based permissions"""
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
@@ -187,7 +187,7 @@ def assign_driver(
     order_id: int,
     driver_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin]))
+    current_user: models.User = Depends(require_scope("orders:assign"))
     ):
     """Assign a driver to an order (admin only)"""
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
@@ -211,7 +211,7 @@ def assign_driver(
 @router.get("/available-for-pickup", response_model=List[order_schema.OrderOut])
 def get_available_orders(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.driver]))
+    current_user: models.User = Depends(require_scope("orders:read"))
     ):
     """Get orders available for pickup (unassigned orders ready for pickup)"""
     return db.query(models.Order).filter(
@@ -224,7 +224,7 @@ def get_available_orders(
 def accept_order(
     order_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.driver]))
+    current_user: models.User = Depends(require_scope("orders:update_status"))
     ):
     """Driver accepts an available order"""
     order = db.query(models.Order).filter(

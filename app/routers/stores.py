@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db import models, database
 from app.schemas.store import StoreCreate, StoreUpdate, StoreOut
 from typing import List
-from app.utils.dependencies import require_role
+from app.utils.dependencies import require_scope
 
 router = APIRouter(prefix="/stores", tags=["stores"])
 
@@ -11,7 +11,7 @@ router = APIRouter(prefix="/stores", tags=["stores"])
 def create_store(
     store: StoreCreate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("stores:manage"))
     ):
     store_data = store.model_dump()
     
@@ -35,7 +35,7 @@ def list_stores(db: Session = Depends(database.get_db)):
 @router.get("/my-stores", response_model=List[StoreOut])
 def get_my_stores(
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("stores:manage"))
 ):
     """Get stores owned by the current store owner."""
     return db.query(models.Store).filter(models.Store.owner_id == current_user.id).all()
@@ -54,7 +54,7 @@ def update_store(
     store_id: int,
     update: StoreUpdate,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("stores:manage"))
     ):
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:
@@ -76,7 +76,7 @@ def update_store(
 def delete_store(
     store_id: int,
     db: Session = Depends(database.get_db),
-    current_user: models.User = Depends(require_role([models.UserRole.admin, models.UserRole.store_owner]))
+    current_user: models.User = Depends(require_scope("stores:manage"))
     ):
     db_store = db.query(models.Store).filter(models.Store.id == store_id).first()
     if not db_store:

@@ -158,10 +158,10 @@ def require_scope(required_scope: str):
 ```
 
 **Tasks:**
-- [ ] Define scope matrix for all roles
-- [ ] Update `create_access_token` to include scopes
+- [x] Define scope matrix for all roles
+- [x] Update `create_access_token` to include scopes
 - [ ] Replace `require_role` with `require_scope` in routers
-- [ ] Add scope verification tests
+- [x] Add scope verification tests
 - [ ] Document scopes in OpenAPI security schemes
 
 ---
