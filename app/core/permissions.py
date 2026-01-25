@@ -31,7 +31,8 @@ SCOPE_MATRIX: Dict[str, List[str]] = {
     ],
     UserRole.store_owner.value: [
         "products:manage", 
-        "orders:read_store", 
+        "orders:read_store",
+        "orders:update_status",
         "stores:manage"
     ],
     UserRole.admin.value: ["*"] # Wildcard grants all checks

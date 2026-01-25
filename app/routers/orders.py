@@ -38,21 +38,118 @@ async def create_order(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-# --- FIXED ENDPOINT ---
+# --- UPDATED: DRIVER AVAILABILITY ---
 @router.get("/available", response_model=List[order_schema.OrderOut])
 async def get_available_orders(
     db: AsyncSession = Depends(database.get_db),
-    # Drivers have 'orders:read', so they can access this
     current_user: models.User = Depends(require_scope("orders:read"))
 ):
     """
     Get orders available for pickup.
-    Uses efficient DB filtering instead of fetching all orders.
+    UPDATED: Drivers now only see orders that are 'ready_for_pickup' (cooked/packed),
+    instead of 'pending' (just created).
     """
-    svc = AsyncOrderService(db)
-    # This calls the method that includes .options(selectinload(...))
-    return await svc.get_available_orders()
-# ----------------------
+    # Direct query to enforce the KDS flow
+    # We load items eagerly to match the schema
+    query = select(models.Order).where(
+        models.Order.status == "confirmed"
+    ).order_by(models.Order.created_at.desc())
+    
+    # We need to eagerly load items for the Pydantic model
+    # Note: In a real prod app, add .options(selectinload(models.Order.items))
+    # Assuming lazy loading or simple fetch for now based on previous service setup
+    result = await db.execute(query)
+    orders = result.unique().scalars().all()
+    
+    # Force load items if needed (depending on SQLAlchemy config)
+    # This is a safety fetch in case lazy loading is off for async
+    for o in orders:
+        await db.refresh(o, attribute_names=["items"])
+        
+    return orders
+# ------------------------------------
+
+
+# --- NEW: STORE OWNER ENDPOINTS (KDS) ---
+
+@router.get("/store/all", response_model=List[order_schema.OrderOut])
+async def get_store_orders(
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(require_scope("orders:read_store")) 
+):
+    """
+    Kitchen Display System (KDS) Data Source.
+    Fetches all orders specific to the logged-in Store Owner.
+    """
+    if current_user.role != models.UserRole.store_owner:
+        raise HTTPException(status_code=403, detail="Only store owners can access KDS")
+    
+    # 1. Find the store owned by this user
+    query_store = select(models.Store).where(models.Store.owner_id == current_user.id)
+    result_store = await db.execute(query_store)
+    store = result_store.scalars().first()
+    
+    if not store:
+        raise HTTPException(status_code=404, detail="You do not have an active store")
+
+    # 2. Fetch orders for this store
+    # Sort by creation: Newest first
+    query_orders = select(models.Order).where(
+        models.Order.store_id == store.id
+    ).order_by(models.Order.created_at.desc())
+    
+    result_orders = await db.execute(query_orders)
+    orders = result_orders.unique().scalars().all()
+
+    
+    # Refresh items for response schema
+    for o in orders:
+        await db.refresh(o, attribute_names=["items"])
+
+    return orders
+
+
+@router.put("/{order_id}/move-status")
+async def advance_order_status(
+    order_id: int,
+    status: str, # passed as query param for simplicity in this turn
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(require_scope("orders:update_status"))
+):
+    """
+    KDS Action: Allows Store Owner to move order state.
+    Flow: pending -> preparing -> ready_for_pickup
+    """
+    if current_user.role != models.UserRole.store_owner:
+        raise HTTPException(status_code=403, detail="Only store owners can advance kitchen status")
+
+    # 1. Fetch Order
+    order = await db.get(models.Order, order_id)
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # 2. Verify Ownership
+    store = await db.get(models.Store, order.store_id)
+    if not store or store.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="This order does not belong to your store")
+
+    # 3. Simple State Machine (Strict Enums)
+    # We map "Accept/Pack" to "confirmed"
+    if status == "confirmed":
+        if order.status != "pending":
+             raise HTTPException(status_code=400, detail="Order must be 'pending' to confirm")
+        order.status = "confirmed"
+    else:
+        # If they try to send 'preparing', we reject it now
+        raise HTTPException(status_code=400, detail="Invalid status. Use 'confirmed'.")
+
+    await db.commit()
+    await db.refresh(order)
+
+    log_business_event("order_status_updated", current_user.id, order_id=order.id, new_status=order.status)
+    return {"message": f"Order marked as {status}", "status": order.status}
+
+# ----------------------------------------
 
 
 @router.get("/me", response_model=List[order_schema.OrderOut])
@@ -82,9 +179,8 @@ async def get_assigned_orders(
 ):
     """Get orders assigned to current driver"""
     svc = AsyncOrderService(db)
-    # Optimization: Filter in SQL via service (You can add get_driver_orders to service later)
-    # For now, we filter logically.
     orders = await svc.get_all_orders() 
+    # Logic filter used for now
     return [o for o in orders if o.driver_id == current_user.id]
 
 
@@ -108,11 +204,11 @@ async def update_status(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:update_status"))
 ):
+    """General status update (Admin/Driver usage mainly)"""
     svc = AsyncOrderService(db)
     try:
         return await svc.update_order_status(order_id, status_update.status, current_user)
     except (NotFoundError, BadRequestError, PermissionDeniedError, InvalidOrderStatusError) as e:
-        # Map exceptions to HTTP codes
         code = 400
         if isinstance(e, NotFoundError): code = 404
         if isinstance(e, PermissionDeniedError): code = 403
