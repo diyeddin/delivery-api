@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
 from app.utils.dependencies import get_current_user, require_scope
 from app.schemas import user as user_schema
+from app.schemas.user import UserUpdate
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -60,8 +61,26 @@ async def update_user_role(
 async def get_me(current_user: models.User = Depends(get_current_user)):
     return current_user
 
+# --- 4. STANDARD: Update Me ---
+@router.put("/me", response_model=user_schema.UserOut)
+async def update_my_profile(
+    payload: UserUpdate,
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Allows the user to update their own profile details."""
+    if payload.name:
+        current_user.name = payload.name
+    
+    # If you add email/phone later to UserUpdate, handle them here:
+    # if payload.email is not None: ...
+    
+    db.add(current_user)
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
 
-# --- 4. DRIVER: Update Location ---
+# --- 5. DRIVER: Update Location ---
 @router.patch("/me/location", response_model=user_schema.UserOut)
 async def update_driver_location(
     location_data: user_schema.DriverLocationUpdate,
