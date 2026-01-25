@@ -1,8 +1,8 @@
 # app/routers/products.py
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Optional
 from app.db import models, database
 from app.schemas.product import ProductCreate, ProductOut, ProductUpdate
 from app.services.product_service import AsyncProductService
@@ -10,6 +10,44 @@ from app.utils.exceptions import NotFoundError
 from app.utils.dependencies import require_scope
 
 router = APIRouter(prefix="/products", tags=["products"])
+
+@router.get("/", response_model=List[ProductOut])
+async def search_products(
+    q: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    in_stock: bool = True,
+    db: AsyncSession = Depends(database.get_db)
+):
+    """
+    Global Product Search.
+    Allows filtering by text, price, and availability.
+    """
+    query = select(models.Product)
+    
+    # 1. Search Logic (Name or Description)
+    if q:
+        search_text = f"%{q}%"
+        query = query.where(
+            or_(
+                models.Product.name.ilike(search_text),
+                models.Product.description.ilike(search_text)
+            )
+        )
+    
+    # 2. Price Filters
+    if min_price is not None:
+        query = query.where(models.Product.price >= min_price)
+    if max_price is not None:
+        query = query.where(models.Product.price <= max_price)
+        
+    # 3. Stock Filter
+    if in_stock:
+        query = query.where(models.Product.stock > 0)
+
+    # Execute
+    result = await db.execute(query)
+    return result.scalars().all()
 
 @router.post("/", response_model=ProductOut)
 async def create_product(
