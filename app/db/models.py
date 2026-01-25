@@ -78,6 +78,7 @@ class Order(Base):
     user_id = Column(Integer, ForeignKey("users.id"), index=True) # customer
     driver_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True) # driver
     store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True) # store
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     status = Column(Enum(OrderStatus), default=OrderStatus.pending)
     assigned_at = Column(DateTime(timezone=True), nullable=True)

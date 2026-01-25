@@ -40,6 +40,7 @@ class OrderOut(BaseModel):
     driver_id: Optional[int] = None
     status: str
     total_price: float = Field(..., ge=0, description="Total price must be non-negative")
+    created_at: datetime
     assigned_at: Optional[datetime] = None 
     
     # NEW: Expose the address in the response
