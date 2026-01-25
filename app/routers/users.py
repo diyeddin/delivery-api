@@ -1,24 +1,71 @@
 # app/routers/users.py
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
 from app.utils.dependencies import get_current_user, require_scope
 from app.schemas import user as user_schema
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+# --- 1. ADMIN: List All Users ---
+@router.get("/", response_model=List[user_schema.UserOut])
+async def get_all_users(
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(database.get_db),
+    # Ensure your SCOPE_MATRIX gives admins "users:read_all" or use require_scope("users:manage")
+    current_user: models.User = Depends(require_scope("users:manage")) 
+):
+    query = select(models.User).offset(skip).limit(limit)
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+# --- 2. ADMIN: Update User Role ---
+class RoleUpdate(BaseModel):
+    role: str
+
+@router.put("/{user_id}/role", response_model=user_schema.UserOut)
+async def update_user_role(
+    user_id: int,
+    role_data: RoleUpdate,
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(require_scope("users:manage"))
+):
+    # 1. Fetch User
+    result = await db.execute(select(models.User).where(models.User.id == user_id))
+    user = result.unique().scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 2. Validate Role
+    try:
+        new_role = models.UserRole(role_data.role)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid role. Options: {[r.value for r in models.UserRole]}")
+
+    # 3. Update & Save
+    user.role = new_role
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+# --- 3. STANDARD: Get Me ---
 @router.get("/me", response_model=user_schema.UserOut)
 async def get_me(current_user: models.User = Depends(get_current_user)):
-    # Pydantic's 'from_attributes=True' will handle mapping the model to the schema,
-    # including the new latitude/longitude fields.
     return current_user
 
+
+# --- 4. DRIVER: Update Location ---
 @router.patch("/me/location", response_model=user_schema.UserOut)
 async def update_driver_location(
     location_data: user_schema.DriverLocationUpdate,
     db: AsyncSession = Depends(database.get_db),
-    # Critical: Only drivers (or those with this scope) can hit this.
     current_user: models.User = Depends(require_scope("location:update"))
 ):
     """
@@ -42,25 +89,8 @@ async def update_driver_location(
 
     return current_user
 
-@router.patch("/{user_id}/role", response_model=user_schema.UserOut)
-async def update_user_role(
-    user_id: int,
-    role: models.UserRole,
-    db: AsyncSession = Depends(database.get_db),
-    current_user: models.User = Depends(require_scope("users:manage"))
-):
-    result = await db.execute(select(models.User).where(models.User.id == user_id))
-    user = result.unique().scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
 
-    user.role = role
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    return user
-
-# Test endpoints
+# --- Test Endpoints ---
 @router.get("/admin-only")
 async def admin_only_route(current_user: models.User = Depends(require_scope("users:manage"))):
     return {"message": f"Hello Admin {current_user.name}"}

@@ -23,7 +23,7 @@ async def get_products(
     """
     Global Product Search & Filter.
     """
-    query = select(models.Product).where(models.Product.is_active == True)
+    query = select(models.Product) #.where(models.Product.is_active == True)
     
     # 1. Search Logic (Name or Description)
     if q:
@@ -64,7 +64,7 @@ async def get_store_products(
     """
     query = select(models.Product).where(
         models.Product.store_id == store_id,
-        models.Product.is_active == True
+        # models.Product.is_active == True
     )
     result = await db.execute(query)
     return result.scalars().all()

@@ -11,11 +11,11 @@ from app.core.logging import get_logger, log_auth_event
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = get_logger(__name__)
 
-# CHANGED: /register -> /signup to match smoke test
 @router.post("/signup", response_model=UserOut)
 async def signup(user: UserCreate, db: AsyncSession = Depends(database.get_db)):
     logger.info("User registration attempt", email=user.email)
 
+    # 1. Check if email exists
     result = await db.execute(select(models.User).where(models.User.email == user.email))
     db_user = result.unique().scalar_one_or_none()
     if db_user:
@@ -23,8 +23,16 @@ async def signup(user: UserCreate, db: AsyncSession = Depends(database.get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     hashed = security.hash_password(user.password)
-    # Ensure default roles are handled correctly if needed
-    new_user = models.User(name=user.name, email=user.email, hashed_password=hashed)
+    
+    # 2. Create User with Explicit 'customer' Role
+    new_user = models.User(
+        name=user.name, 
+        email=user.email, 
+        hashed_password=hashed,
+        role=models.UserRole.customer, # <--- EXPLICITLY SET THIS
+        is_active=True
+    )
+    
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
@@ -44,6 +52,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
         log_auth_event("login", form_data.username, success=False, reason="invalid_credentials")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
+    # Includes Role in the Token
     token = security.create_access_token({"sub": user.email, "role": user.role.value})
     log_auth_event("login", user.email, success=True, user_id=user.id)
     logger.info("User logged in successfully", user_id=user.id, email=user.email)
