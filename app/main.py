@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
-from app.routers import auth, users, stores, products, orders, drivers, admin
+from app.routers import auth, users, addresses, stores, products, orders, drivers, admin
 from app.core.logging import setup_logging, get_logger, LoggingMiddleware
 from app.middleware.idempotency import IdempotencyMiddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -159,6 +159,7 @@ def root():
 
 app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(users.router, prefix=settings.API_V1_STR)
+app.include_router(addresses.router, prefix=settings.API_V1_STR)
 app.include_router(stores.router, prefix=settings.API_V1_STR)
 app.include_router(products.router, prefix=settings.API_V1_STR)
 app.include_router(orders.router, prefix=settings.API_V1_STR)

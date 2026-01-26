@@ -25,7 +25,7 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    address = Column(String, nullable=True)
+    address = Column(String, nullable=True) # ignore for now
     role = Column(Enum(UserRole), default=UserRole.customer)
 
     # Driver Location & Status
@@ -37,6 +37,31 @@ class User(Base):
     stores = relationship("Store", back_populates="owner")
     orders = relationship("Order", foreign_keys="Order.user_id", back_populates="user")
     deliveries = relationship("Order", foreign_keys="Order.driver_id", back_populates="driver")
+    addresses = relationship("Address", back_populates="user", cascade="all, delete-orphan")
+
+class Address(Base):
+    __tablename__ = "addresses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    
+    # Descriptive label (e.g., "Home", "Office", "Mom's House")
+    label = Column(String, default="Home") 
+    
+    # The actual address string (e.g., "123 Main St, Apt 4, New York, NY")
+    # You can break this into city/state/zip columns later if needed
+    address_line = Column(String, nullable=False)
+    
+    # Coordinates (Optional, but great for delivery drivers later)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    
+    # Instructions (e.g., "Leave at front desk")
+    instructions = Column(String, nullable=True)
+    
+    is_default = Column(Boolean, default=False)
+
+    user = relationship("User", back_populates="addresses")
 
 class Store(Base):
     __tablename__ = "stores"
