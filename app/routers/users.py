@@ -1,12 +1,13 @@
 # app/routers/users.py
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
 from app.utils.dependencies import get_current_user, require_scope
 from app.schemas import user as user_schema
-from app.schemas.user import UserUpdate, PushTokenUpdate # <--- Import new schema
+from app.schemas.user import UserUpdate, PushTokenUpdate
+from app.services.user_service import AsyncUserService
+from app.utils.exceptions import NotFoundError, BadRequestError
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -19,9 +20,10 @@ async def get_all_users(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("users:manage")) 
 ):
-    query = select(models.User).offset(skip).limit(limit)
-    result = await db.execute(query)
-    return result.scalars().all()
+    """Get all users with pagination (admin only)."""
+    user_service = AsyncUserService(db)
+    users = await user_service.get_all_users(skip=skip, limit=limit)
+    return users
 
 
 # --- 2. ADMIN: Update User Role ---
@@ -35,27 +37,24 @@ async def update_user_role(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("users:manage"))
 ):
-    result = await db.execute(select(models.User).where(models.User.id == user_id))
-    user = result.unique().scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
+    """Update a user's role (admin only)."""
+    user_service = AsyncUserService(db)
+    
     try:
-        new_role = models.UserRole(role_data.role)
-    except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid role. Options: {[r.value for r in models.UserRole]}")
-
-    user.role = new_role
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
-    return user
+        user = await user_service.update_user_role(user_id, role_data.role)
+        return user
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
+    except BadRequestError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # --- 3. STANDARD: Get Me ---
 @router.get("/me", response_model=user_schema.UserOut)
 async def get_me(current_user: models.User = Depends(get_current_user)):
+    """Get current user's profile."""
     return current_user
+
 
 # --- 4. STANDARD: Update Me ---
 @router.put("/me", response_model=user_schema.UserOut)
@@ -64,15 +63,17 @@ async def update_my_profile(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    if payload.name:
-        current_user.name = payload.name
+    """Update current user's profile."""
+    user_service = AsyncUserService(db)
     
-    db.add(current_user)
-    await db.commit()
-    await db.refresh(current_user)
-    return current_user
+    try:
+        user = await user_service.update_user_profile(current_user.id, payload)
+        return user
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
 
-# --- NEW: Update Push Token ---
+
+# --- 5. NEW: Update Push Token ---
 @router.post("/me/push-token", status_code=status.HTTP_200_OK)
 async def update_push_token(
     payload: PushTokenUpdate,
@@ -80,38 +81,56 @@ async def update_push_token(
     current_user: models.User = Depends(get_current_user)
 ):
     """
-    Saves the Expo Push Token for the current user. 
+    Save the Expo Push Token for the current user. 
     This allows the backend to send notifications.
     """
-    current_user.notification_token = payload.token
-    db.add(current_user)
-    await db.commit()
-    return {"message": "Token updated successfully"}
+    user_service = AsyncUserService(db)
+    
+    try:
+        await user_service.update_push_token(current_user.id, payload.token)
+        return {"message": "Token updated successfully"}
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
 
-# --- 5. DRIVER: Update Location ---
+
+# --- 6. DRIVER: Update Location ---
 @router.patch("/me/location", response_model=user_schema.UserOut)
 async def update_driver_location(
     location_data: user_schema.DriverLocationUpdate,
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("location:update"))
 ):
-    current_user.latitude = location_data.latitude
-    current_user.longitude = location_data.longitude
+    """Update driver's current location and active status."""
+    user_service = AsyncUserService(db)
     
-    if location_data.is_active is not None:
-        current_user.is_active = location_data.is_active
-
     try:
-        await db.commit()
-        await db.refresh(current_user)
+        user = await user_service.update_driver_location(
+            user_id=current_user.id,
+            latitude=location_data.latitude,
+            longitude=location_data.longitude,
+            is_active=location_data.is_active
+        )
+        return user
+    except NotFoundError:
+        raise HTTPException(status_code=404, detail="User not found")
     except Exception as e:
-        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update location"
         )
 
-    return current_user
+
+# --- 7. NEW: Get Active Drivers (for order assignment) ---
+@router.get("/drivers/active", response_model=List[user_schema.UserOut])
+async def get_active_drivers(
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Get all currently active drivers (for customers to see availability)."""
+    user_service = AsyncUserService(db)
+    drivers = await user_service.get_active_drivers()
+    return drivers
+
 
 # --- Test Endpoints ---
 @router.get("/admin-only")
