@@ -44,3 +44,5 @@ watchdog[watchmedo]>=3.0.0
 # Phase 4
 # geoalchemy2
 # shapely
+
+exponent_server_sdk

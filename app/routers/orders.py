@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List
@@ -9,8 +9,49 @@ from app.utils.dependencies import require_scope
 from app.utils.exceptions import NotFoundError, BadRequestError, PermissionDeniedError, InvalidOrderStatusError
 from app.core.logging import get_logger, log_business_event
 
+# --- NEW: Expo SDK Imports ---
+from exponent_server_sdk import PushClient, PushMessage
+from requests.exceptions import ConnectionError, HTTPError
+
 router = APIRouter(prefix="/orders", tags=["orders"])
 logger = get_logger(__name__)
+
+# --- NEW: Notification Helper ---
+def send_expo_push(token: str, message: str):
+    """
+    Synchronous function to send push notification via Expo.
+    (Run this in BackgroundTasks to avoid blocking the event loop)
+    """
+    try:
+        response = PushClient().publish(
+            PushMessage(to=token, body=message, data={"type": "order_update"})
+        )
+        # Check for errors in the response logic from Expo
+        if response.status != "ok":
+            logger.error(f"Expo Push Error: {response.message}")
+    except (ConnectionError, HTTPError) as e:
+        logger.error(f"Network Error sending push: {e}")
+    except Exception as e:
+        logger.error(f"Unknown Push Error: {e}")
+
+async def notify_customer(db: AsyncSession, order_id: int, message: str, bg_tasks: BackgroundTasks):
+    """
+    Fetches the customer's token and schedules the push notification.
+    """
+    # 1. Fetch User Token via Order relationship
+    result = await db.execute(
+        select(models.User.notification_token)
+        .join(models.Order, models.Order.user_id == models.User.id)
+        .where(models.Order.id == order_id)
+    )
+    token = result.scalar_one_or_none()
+
+    # 2. Schedule Background Task if token exists
+    if token:
+        bg_tasks.add_task(send_expo_push, token, message)
+        logger.info(f"Notification scheduled for Order #{order_id} -> {token[:10]}...")
+    else:
+        logger.info(f"No token found for Order #{order_id}, skipping notification.")
 
 
 @router.post("/", response_model=List[order_schema.OrderOut])
@@ -46,28 +87,19 @@ async def get_available_orders(
 ):
     """
     Get orders available for pickup.
-    UPDATED: Drivers now only see orders that are 'ready_for_pickup' (cooked/packed),
-    instead of 'pending' (just created).
+    Drivers only see orders that are 'confirmed' (ready for pickup/prep).
     """
-    # Direct query to enforce the KDS flow
-    # We load items eagerly to match the schema
     query = select(models.Order).where(
         models.Order.status == "confirmed"
     ).order_by(models.Order.created_at.desc())
     
-    # We need to eagerly load items for the Pydantic model
-    # Note: In a real prod app, add .options(selectinload(models.Order.items))
-    # Assuming lazy loading or simple fetch for now based on previous service setup
     result = await db.execute(query)
     orders = result.unique().scalars().all()
     
-    # Force load items if needed (depending on SQLAlchemy config)
-    # This is a safety fetch in case lazy loading is off for async
     for o in orders:
         await db.refresh(o, attribute_names=["items"])
         
     return orders
-# ------------------------------------
 
 
 # --- NEW: STORE OWNER ENDPOINTS (KDS) ---
@@ -77,10 +109,6 @@ async def get_store_orders(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:read_store")) 
 ):
-    """
-    Kitchen Display System (KDS) Data Source.
-    Fetches all orders specific to the logged-in Store Owner.
-    """
     if current_user.role != models.UserRole.store_owner:
         raise HTTPException(status_code=403, detail="Only store owners can access KDS")
     
@@ -93,7 +121,6 @@ async def get_store_orders(
         raise HTTPException(status_code=404, detail="You do not have an active store")
 
     # 2. Fetch orders for this store
-    # Sort by creation: Newest first
     query_orders = select(models.Order).where(
         models.Order.store_id == store.id
     ).order_by(models.Order.created_at.desc())
@@ -101,7 +128,6 @@ async def get_store_orders(
     result_orders = await db.execute(query_orders)
     orders = result_orders.unique().scalars().all()
 
-    
     # Refresh items for response schema
     for o in orders:
         await db.refresh(o, attribute_names=["items"])
@@ -112,13 +138,13 @@ async def get_store_orders(
 @router.put("/{order_id}/move-status")
 async def advance_order_status(
     order_id: int,
-    status: str, # passed as query param for simplicity in this turn
+    status: str, 
+    bg_tasks: BackgroundTasks, # <--- Inject BackgroundTasks
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:update_status"))
 ):
     """
     KDS Action: Allows Store Owner to move order state.
-    Flow: pending -> preparing -> ready_for_pickup
     """
     if current_user.role != models.UserRole.store_owner:
         raise HTTPException(status_code=403, detail="Only store owners can advance kitchen status")
@@ -133,23 +159,23 @@ async def advance_order_status(
     if not store or store.owner_id != current_user.id:
         raise HTTPException(status_code=403, detail="This order does not belong to your store")
 
-    # 3. Simple State Machine (Strict Enums)
-    # We map "Accept/Pack" to "confirmed"
+    # 3. Simple State Machine
     if status == "confirmed":
         if order.status != "pending":
              raise HTTPException(status_code=400, detail="Order must be 'pending' to confirm")
         order.status = "confirmed"
     else:
-        # If they try to send 'preparing', we reject it now
         raise HTTPException(status_code=400, detail="Invalid status. Use 'confirmed'.")
 
     await db.commit()
     await db.refresh(order)
 
+    # --- TRIGGER NOTIFICATION ---
+    await notify_customer(db, order.id, f"Great news! Your order #{order.id} has been confirmed.", bg_tasks)
+    # ----------------------------
+
     log_business_event("order_status_updated", current_user.id, order_id=order.id, new_status=order.status)
     return {"message": f"Order marked as {status}", "status": order.status}
-
-# ----------------------------------------
 
 
 @router.get("/me", response_model=List[order_schema.OrderOut])
@@ -180,7 +206,6 @@ async def get_assigned_orders(
     """Get orders assigned to current driver"""
     svc = AsyncOrderService(db)
     orders = await svc.get_all_orders() 
-    # Logic filter used for now
     return [o for o in orders if o.driver_id == current_user.id]
 
 
@@ -201,13 +226,21 @@ async def get_order(
 async def update_status(
     order_id: int,
     status_update: order_schema.OrderStatusUpdate,
+    bg_tasks: BackgroundTasks, # <--- Inject BackgroundTasks
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:update_status"))
 ):
     """General status update (Admin/Driver usage mainly)"""
     svc = AsyncOrderService(db)
     try:
-        return await svc.update_order_status(order_id, status_update.status, current_user)
+        order = await svc.update_order_status(order_id, status_update.status, current_user)
+        
+        # --- TRIGGER NOTIFICATION ---
+        friendly_status = status_update.status.replace("_", " ").title()
+        await notify_customer(db, order_id, f"Update: Your order is now {friendly_status}", bg_tasks)
+        # ----------------------------
+
+        return order
     except (NotFoundError, BadRequestError, PermissionDeniedError, InvalidOrderStatusError) as e:
         code = 400
         if isinstance(e, NotFoundError): code = 404
@@ -218,6 +251,7 @@ async def update_status(
 @router.put("/{order_id}/accept", response_model=order_schema.OrderOut)
 async def accept_order(
     order_id: int,
+    bg_tasks: BackgroundTasks, # <--- Inject BackgroundTasks
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:update_status"))
 ):
@@ -227,7 +261,13 @@ async def accept_order(
 
     svc = AsyncOrderService(db)
     try:
-        return await svc.accept_order_atomic(order_id, current_user.id)
+        order = await svc.accept_order_atomic(order_id, current_user.id)
+        
+        # --- TRIGGER NOTIFICATION ---
+        await notify_customer(db, order_id, "A driver is on their way to pick up your order!", bg_tasks)
+        # ----------------------------
+
+        return order
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Order not found")
     except BadRequestError as e:
