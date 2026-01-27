@@ -19,6 +19,8 @@ class AddressUpdate(BaseModel):
     address_line: Optional[str] = None
     instructions: Optional[str] = None
     is_default: Optional[bool] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class AddressOut(AddressBase):
     model_config = ConfigDict(from_attributes=True)

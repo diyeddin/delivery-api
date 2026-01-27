@@ -23,7 +23,7 @@ async def get_my_addresses(
     return addresses
 
 
-# --- 2. Get Default Address ---
+# --- 2. NEW: Get Default Address ---
 @router.get("/default", response_model=address_schema.AddressOut)
 async def get_default_address(
     db: AsyncSession = Depends(database.get_db),
@@ -42,7 +42,7 @@ async def get_default_address(
     return address
 
 
-# --- 3. Get Single Address ---
+# --- 3. NEW: Get Single Address ---
 @router.get("/{address_id}", response_model=address_schema.AddressOut)
 async def get_address(
     address_id: int,

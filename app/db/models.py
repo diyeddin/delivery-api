@@ -137,7 +137,7 @@ class OrderItem(Base):
         UniqueConstraint("order_id", "product_id", name="uq_order_product"),
     )
 
-class IdempotencyKey(Base):
+class IdempotencyKey(Base): # I think it's now obsolete since we're using Redis for idempotency
     __tablename__ = "idempotency_keys"
     key_hash = Column(String(64), primary_key=True, index=True)
     response_payload = Column(Text, nullable=False)

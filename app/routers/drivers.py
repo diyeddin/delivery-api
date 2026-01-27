@@ -146,7 +146,7 @@ async def update_delivery_status(
         )
 
 
-# --- 5. Get Driver Stats ---
+# --- 5. NEW: Get Driver Stats ---
 class DriverStatsResponse(BaseModel):
     driver_id: int
     total_deliveries: int
@@ -165,7 +165,7 @@ async def get_driver_stats(
     return DriverStatsResponse(**stats)
 
 
-# --- 6. Get Delivery History ---
+# --- 6. NEW: Get Delivery History ---
 @router.get("/history", response_model=List[OrderOut])
 async def get_delivery_history(
     status_filter: Optional[str] = Query(None, description="Filter by order status"),
@@ -193,7 +193,7 @@ async def get_delivery_history(
         )
 
 
-# --- 7. Check Availability ---
+# --- 7. NEW: Check Availability ---
 class AvailabilityResponse(BaseModel):
     is_available: bool
     message: str
@@ -219,7 +219,7 @@ async def check_availability(
         )
 
 
-# --- 8. Get Nearby Drivers (Admin/Customer View) ---
+# --- 8. NEW: Get Nearby Drivers (Admin/Customer View) ---
 class NearbyDriverResponse(BaseModel):
     driver_id: int
     name: str
