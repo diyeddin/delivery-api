@@ -213,7 +213,7 @@ async def get_assigned_orders(
 async def get_order(
     order_id: int,
     db: AsyncSession = Depends(database.get_db),
-    current_user: models.User = Depends(require_scope("orders:read"))
+    current_user: models.User = Depends(require_scope(["orders:read", "orders:read_own"]))
 ):
     svc = AsyncOrderService(db)
     try:

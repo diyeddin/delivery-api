@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app.services.order_service import AsyncOrderService
 from app.core import security
 from app.db import models, database
-from typing import List
+from typing import List, Union
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -43,24 +43,42 @@ def require_role(allowed_roles: List[models.UserRole]):
     return role_checker
 
 
-def require_scope(required_scope: str):
-    """Dependency factory that enforces a single required scope.
-
-    Usage: Depends(require_scope('orders:update_status'))
+def require_scope(required_scope: Union[str, List[str]]):
+    """Dependency factory that enforces one or more required scopes.
+    If a list is provided, the user must have at least ONE of the scopes (OR logic).
     """
-    async def scope_checker(token: str = Depends(oauth2_scheme), current_user: models.User = Depends(get_current_user)):
+    async def scope_checker(
+        token: str = Depends(oauth2_scheme), 
+        current_user: models.User = Depends(get_current_user)
+    ):
         payload = security.verify_token(token)
         if not payload:
             raise credentials_exception
+        
         scopes = payload.get("scopes", []) or []
-        # admin wildcard
+        
+        # 1. Admin wildcard
         if "*" in scopes:
             return current_user
-        if required_scope not in scopes:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Missing scope: {required_scope}")
+        
+        # 2. Handle List vs String
+        if isinstance(required_scope, list):
+            # OR Logic: User needs at least one of these
+            if not any(s in scopes for s in required_scope):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, 
+                    detail=f"Missing one of required scopes: {required_scope}"
+                )
+        else:
+            # Original Single String Logic
+            if required_scope not in scopes:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, 
+                    detail=f"Missing scope: {required_scope}"
+                )
+                
         return current_user
     return scope_checker
-
 async def verify_order_access(
     order_id: int, 
     db: AsyncSession = Depends(database.get_db),
