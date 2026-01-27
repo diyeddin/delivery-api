@@ -1,5 +1,5 @@
 """
-Order service layer for complex business logic.
+Order service layer for complex business logic with Redis caching.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -10,12 +10,78 @@ from app.schemas.order import OrderCreate
 from app.utils.exceptions import NotFoundError, BadRequestError, InsufficientStockError, PermissionDeniedError
 from datetime import datetime, timezone, timedelta
 from itertools import groupby
+from app.core.redis import redis_client
+import json
 
 class AsyncOrderService:
     """Async service class for order-related business logic using AsyncSession."""
+    
+    # Cache TTLs (in seconds)
+    ORDER_CACHE_TTL = 300  # 5 minutes
+    AVAILABLE_ORDERS_CACHE_TTL = 60  # 1 minute (frequently changing)
+    USER_ORDERS_CACHE_TTL = 180  # 3 minutes
 
     def __init__(self, db: AsyncSession):
         self.db = db
+
+    # --- CACHE HELPER METHODS ---
+    
+    async def _invalidate_order_cache(self, order_id: int, user_id: int = None):
+        """Invalidate all cache entries related to an order."""
+        keys_to_delete = [
+            f"order:{order_id}",
+            "orders:available",
+        ]
+        if user_id:
+            keys_to_delete.append(f"orders:user:{user_id}")
+        
+        try:
+            await redis_client.delete(*keys_to_delete)
+        except Exception:
+            pass  # Cache invalidation failure shouldn't break the operation
+
+    async def _cache_order(self, order: models.Order):
+        """Cache a single order."""
+        try:
+            order_data = {
+                "id": order.id,
+                "user_id": order.user_id,
+                "store_id": order.store_id,
+                "driver_id": order.driver_id,
+                "status": order.status.value,
+                "total_price": float(order.total_price),
+                "delivery_address": order.delivery_address,
+                "assigned_at": order.assigned_at.isoformat() if order.assigned_at else None,
+                "created_at": order.created_at.isoformat() if order.created_at else None,
+                "items": [
+                    {
+                        "id": item.id,
+                        "product_id": item.product_id,
+                        "quantity": item.quantity,
+                        "price_at_purchase": float(item.price_at_purchase)
+                    }
+                    for item in order.items
+                ] if order.items else []
+            }
+            await redis_client.setex(
+                f"order:{order.id}",
+                self.ORDER_CACHE_TTL,
+                json.dumps(order_data)
+            )
+        except Exception:
+            pass  # Cache write failure shouldn't break the operation
+
+    async def _get_cached_order(self, order_id: int) -> Optional[dict]:
+        """Get cached order data."""
+        try:
+            cached = await redis_client.get(f"order:{order_id}")
+            if cached:
+                return json.loads(cached)
+        except Exception:
+            pass
+        return None
+
+    # --- SERVICE METHODS ---
 
     async def create_order(self, order_data: OrderCreate, current_user: models.User) -> List[models.Order]:
         """
@@ -84,11 +150,17 @@ class AsyncOrderService:
 
             await self.db.commit()
             
+            # Invalidate user orders cache and available orders cache
+            await self._invalidate_order_cache(0, current_user.id)
+            
             # Refresh all orders to get IDs and populate relationships
             final_orders = []
             for order in created_orders:
                 # Use get_order to ensure items are loaded via selectinload (prevents Greenlet error)
-                final_orders.append(await self.get_order(order.id, current_user))
+                refreshed_order = await self.get_order(order.id, current_user)
+                final_orders.append(refreshed_order)
+                # Cache the newly created order
+                await self._cache_order(refreshed_order)
                 
             return final_orders
 
@@ -97,6 +169,10 @@ class AsyncOrderService:
             raise e
 
     async def get_order(self, order_id: int, current_user: models.User = None) -> models.Order:
+        # Try cache first (but only for non-permission-checked requests)
+        # Since we need to apply user-specific permission logic, we can't fully rely on cache
+        # However, we can cache the base data and apply permissions afterward
+        
         # CRITICAL: Use selectinload to avoid Greenlet errors on 'lazy="joined"'
         stmt = (
             select(models.Order)
@@ -119,29 +195,109 @@ class AsyncOrderService:
                      # Simple check: strict visibility can be expanded based on geo-location logic
                      pass 
 
+        # Cache the order after fetching
+        await self._cache_order(order)
+        
         return order
     
     async def get_available_orders(self) -> List[models.Order]:
         """Fetch orders ready for driver pickup."""
+        # Try cache first
+        try:
+            cached = await redis_client.get("orders:available")
+            if cached:
+                # Return cached IDs and fetch full objects
+                order_ids = json.loads(cached)
+                orders = []
+                for order_id in order_ids:
+                    try:
+                        order = await self.get_order(order_id)
+                        orders.append(order)
+                    except NotFoundError:
+                        # Order was deleted, invalidate cache
+                        await redis_client.delete("orders:available")
+                        break
+                else:
+                    return orders
+        except Exception:
+            pass
+        
+        # Cache miss - fetch from database
         stmt = (
             select(models.Order)
-            # CRITICAL: This line loads the items. If missing -> 422 Error.
             .options(selectinload(models.Order.items)) 
             .where(models.Order.status == models.OrderStatus.pending)
         )
         result = await self.db.execute(stmt)
-        return result.unique().scalars().all()
+        orders = result.unique().scalars().all()
+        
+        # Cache the order IDs
+        try:
+            order_ids = [order.id for order in orders]
+            await redis_client.setex(
+                "orders:available",
+                self.AVAILABLE_ORDERS_CACHE_TTL,
+                json.dumps(order_ids)
+            )
+            # Cache individual orders
+            for order in orders:
+                await self._cache_order(order)
+        except Exception:
+            pass
+        
+        return orders
 
     async def get_user_orders(self, current_user: models.User):
+        # Try cache first
+        cache_key = f"orders:user:{current_user.id}"
+        try:
+            cached = await redis_client.get(cache_key)
+            if cached:
+                order_ids = json.loads(cached)
+                orders = []
+                for order_id in order_ids:
+                    try:
+                        order = await self.get_order(order_id, current_user)
+                        orders.append(order)
+                    except NotFoundError:
+                        # Order was deleted, invalidate cache
+                        await redis_client.delete(cache_key)
+                        break
+                else:
+                    return orders
+        except Exception:
+            pass
+        
+        # Cache miss - fetch from database
         stmt = (
             select(models.Order)
             .options(selectinload(models.Order.items))
             .where(models.Order.user_id == current_user.id)
         )
         result = await self.db.execute(stmt)
-        return result.unique().scalars().all()
+        orders = result.unique().scalars().all()
+        
+        # Cache the order IDs
+        try:
+            order_ids = [order.id for order in orders]
+            await redis_client.setex(
+                cache_key,
+                self.USER_ORDERS_CACHE_TTL,
+                json.dumps(order_ids)
+            )
+            # Cache individual orders
+            for order in orders:
+                await self._cache_order(order)
+        except Exception:
+            pass
+        
+        return orders
 
     async def get_all_orders(self, status_filter: Optional[str] = None):
+        # Note: get_all_orders is typically admin-only and not frequently called
+        # Caching this might not be beneficial due to the variety of filter combinations
+        # For now, we'll skip caching this method
+        
         stmt = select(models.Order).options(selectinload(models.Order.items))
         if status_filter:
             try:
@@ -184,6 +340,10 @@ class AsyncOrderService:
         order.status = new_status_enum
         await self.db.commit()
         await self.db.refresh(order)
+        
+        # Invalidate cache
+        await self._invalidate_order_cache(order_id, order.user_id)
+        
         return order
 
     def _validate_status_transition(self, current_status, new_status, user):
@@ -254,6 +414,10 @@ class AsyncOrderService:
         if modified:
             await self.db.commit()
             await self.db.refresh(order)
+            
+            # Invalidate cache
+            await self._invalidate_order_cache(order_id, order.user_id)
+            
             return order
         
         return order

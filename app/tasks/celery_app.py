@@ -1,9 +1,10 @@
 import os
 from celery import Celery
+from core.config import settings
 from celery.schedules import crontab # For more complex schedules if needed
 
 # Use REDIS_URL env var or default to localhost
-broker = os.getenv("REDIS_URL", os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0"))
+broker = settings.REDIS_URL
 
 celery_app = Celery(
     "mall_delivery",
