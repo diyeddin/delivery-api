@@ -25,13 +25,16 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
-    address = Column(String, nullable=True) # ignore for now
+    address = Column(String, nullable=True) 
     role = Column(Enum(UserRole), default=UserRole.customer)
 
     # Driver Location & Status
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
+
+    # NEW: Push Notification Token (Expo Token)
+    notification_token = Column(String, nullable=True)
 
     # Relationships
     stores = relationship("Store", back_populates="owner")
@@ -45,20 +48,11 @@ class Address(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     
-    # Descriptive label (e.g., "Home", "Office", "Mom's House")
     label = Column(String, default="Home") 
-    
-    # The actual address string (e.g., "123 Main St, Apt 4, New York, NY")
-    # You can break this into city/state/zip columns later if needed
     address_line = Column(String, nullable=False)
-    
-    # Coordinates (Optional, but great for delivery drivers later)
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
-    
-    # Instructions (e.g., "Leave at front desk")
     instructions = Column(String, nullable=True)
-    
     is_default = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="addresses")
@@ -70,14 +64,12 @@ class Store(Base):
     category = Column(String)
     description = Column(String, nullable=True)
     
-    # Store Location
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
 
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
-    # Relationships
     orders = relationship("Order", back_populates="store")
     owner = relationship("User", back_populates="stores")
     products = relationship("Product", back_populates="store", cascade="all, delete-orphan")
@@ -87,22 +79,19 @@ class Product(Base):
     id = Column(Integer, primary_key=True, index=True)
     store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
-    # ADDED: This was missing and caused the crash
     description = Column(String, nullable=True) 
     price = Column(Float, nullable=False)
     stock = Column(Integer, default=0)
 
-    # Relationships
     store = relationship("Store", back_populates="products")
-    # Added back_populates for robust relationship handling
     order_items = relationship("OrderItem", back_populates="product") 
 
 class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), index=True) # customer
-    driver_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True) # driver
-    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True) # store
+    user_id = Column(Integer, ForeignKey("users.id"), index=True) 
+    driver_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True) 
+    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True) 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     
     status = Column(Enum(OrderStatus), default=OrderStatus.pending)
@@ -111,7 +100,6 @@ class Order(Base):
 
     delivery_address = Column(String, nullable=True)
     
-    # Relationships
     user = relationship("User", foreign_keys=[user_id], back_populates="orders")
     driver = relationship("User", foreign_keys=[driver_id], back_populates="deliveries")
     store = relationship("Store", back_populates="orders")
@@ -128,7 +116,6 @@ class Order(Base):
 
     @property
     def assignment_expired(self) -> bool:
-        """Return True when the order was assigned more than 10 minutes ago."""
         if self.status != OrderStatus.assigned:
             return False
         if not self.assigned_at:

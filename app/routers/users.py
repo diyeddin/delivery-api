@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
 from app.utils.dependencies import get_current_user, require_scope
 from app.schemas import user as user_schema
-from app.schemas.user import UserUpdate
+from app.schemas.user import UserUpdate, PushTokenUpdate # <--- Import new schema
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -17,7 +17,6 @@ async def get_all_users(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(database.get_db),
-    # Ensure your SCOPE_MATRIX gives admins "users:read_all" or use require_scope("users:manage")
     current_user: models.User = Depends(require_scope("users:manage")) 
 ):
     query = select(models.User).offset(skip).limit(limit)
@@ -36,19 +35,16 @@ async def update_user_role(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("users:manage"))
 ):
-    # 1. Fetch User
     result = await db.execute(select(models.User).where(models.User.id == user_id))
     user = result.unique().scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # 2. Validate Role
     try:
         new_role = models.UserRole(role_data.role)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid role. Options: {[r.value for r in models.UserRole]}")
 
-    # 3. Update & Save
     user.role = new_role
     db.add(user)
     await db.commit()
@@ -68,17 +64,29 @@ async def update_my_profile(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    """Allows the user to update their own profile details."""
     if payload.name:
         current_user.name = payload.name
-    
-    # If you add email/phone later to UserUpdate, handle them here:
-    # if payload.email is not None: ...
     
     db.add(current_user)
     await db.commit()
     await db.refresh(current_user)
     return current_user
+
+# --- NEW: Update Push Token ---
+@router.post("/me/push-token", status_code=status.HTTP_200_OK)
+async def update_push_token(
+    payload: PushTokenUpdate,
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Saves the Expo Push Token for the current user. 
+    This allows the backend to send notifications.
+    """
+    current_user.notification_token = payload.token
+    db.add(current_user)
+    await db.commit()
+    return {"message": "Token updated successfully"}
 
 # --- 5. DRIVER: Update Location ---
 @router.patch("/me/location", response_model=user_schema.UserOut)
@@ -87,9 +95,6 @@ async def update_driver_location(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("location:update"))
 ):
-    """
-    High-frequency endpoint for drivers to update their GPS coordinates and availability.
-    """
     current_user.latitude = location_data.latitude
     current_user.longitude = location_data.longitude
     
@@ -107,7 +112,6 @@ async def update_driver_location(
         )
 
     return current_user
-
 
 # --- Test Endpoints ---
 @router.get("/admin-only")

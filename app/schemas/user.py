@@ -11,7 +11,6 @@ class UserCreate(BaseModel):
     @field_validator('password')
     @classmethod
     def validate_password(cls, v):
-        """Validate password strength."""
         if len(v) < 8:
             raise ValueError('Password must be at least 8 characters long')
         if not any(c.isupper() for c in v):
@@ -36,10 +35,13 @@ class UserOut(BaseModel):
     email: EmailStr
     name: Optional[str] = None
     role: str
-    # NEW: Driver fields
+    
+    # Driver fields
     is_active: bool = True
     latitude: Optional[float] = None
     longitude: Optional[float] = None
+    # Optional: You can expose token if debugging, but usually private
+    # notification_token: Optional[str] = None 
 
 class UserUpdate(BaseModel):
     """Used for profile updates (Name, Email, etc.)"""
@@ -53,11 +55,11 @@ class UserUpdate(BaseModel):
             raise ValueError('Name cannot be empty or whitespace only')
         return v.strip() if v else v
 
+class PushTokenUpdate(BaseModel):
+    """NEW: Schema for registering a device for push notifications"""
+    token: str = Field(..., min_length=10, max_length=255, description="Expo Push Token")
+
 class DriverLocationUpdate(BaseModel):
-    """
-    NEW: Lightweight schema for high-frequency GPS pings.
-    Only allows updating location and status.
-    """
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     latitude: float = Field(..., ge=-90, le=90)
     longitude: float = Field(..., ge=-180, le=180)
