@@ -1,7 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi.params import Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Dict
+from app.core.security import verify_token
 from app.db import database, models
 from app.schemas import order as order_schema
 from app.services.order_service import AsyncOrderService
@@ -72,19 +74,60 @@ async def notify_customer(db: AsyncSession, order_id: int, message: str, bg_task
 
 # --- 3. WEBSOCKET ENDPOINT ---
 @router.websocket("/{order_id}/ws")
-async def websocket_endpoint(websocket: WebSocket, order_id: int):
+async def websocket_endpoint(
+    websocket: WebSocket, 
+    order_id: int, 
+    token: str = Query(None) # <--- 1. Capture token from URL
+):
     """
-    Real-time channel for Order Status & Driver Location updates.
+    Real-time channel. Requires ?token=jwt_token
     """
+    # --- STEP 1: AUTHENTICATION ---
+    if not token:
+        # Close with "Policy Violation" if no token
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    try:
+        # Verify the token (reuse your auth logic here)
+        # This decoding logic depends on your specific verify_token implementation
+        payload = verify_token(token) 
+        user_id = payload.get("sub") # or payload.get("id")
+        user_role = payload.get("role")
+        
+        # (Optional Step 2: Check if this user actually owns this order)
+        # For now, we just ensure they are a valid user.
+        if not user_id:
+            raise Exception("Invalid user")
+            
+    except Exception as e:
+        print(f"WS Auth Failed: {e}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # --- STEP 3: CONNECTION ---
     order_room = str(order_id)
     await manager.connect(websocket, order_room)
+    
     try:
         while True:
-            # We just listen to keep the connection open.
-            # In the future, drivers can send GPS data here:
-            # data = await websocket.receive_json()
-            # await manager.broadcast(order_room, {"type": "gps_update", "data": data})
-            await websocket.receive_text()
+            # We listen to keep the connection open
+            data = await websocket.receive_json()
+            
+            # Example: If a driver sends GPS, verify they are actually a driver
+            if data.get("type") == "location_update":
+                if user_role != "driver":
+                    # Ignore fake GPS data from customers
+                    continue 
+
+                # Broadcast to the room
+                payload = {
+                    "type": "gps_update", 
+                    "latitude": data.get("latitude"),
+                    "longitude": data.get("longitude")
+                }
+                await manager.broadcast(order_room, payload)
+                
     except WebSocketDisconnect:
         manager.disconnect(websocket, order_room)
 

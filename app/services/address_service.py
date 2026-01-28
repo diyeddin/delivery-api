@@ -2,11 +2,11 @@
 Address service layer for business logic separation with Redis caching.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete
-from typing import List, Optional
+from sqlalchemy import select, update
+from typing import List, Optional, Union, Any
 from app.db import models
 from app.schemas.address import AddressCreate, AddressUpdate
-from app.utils.exceptions import NotFoundError, PermissionDeniedError
+from app.utils.exceptions import NotFoundError
 from app.core.redis import redis_client
 import json
 
@@ -14,16 +14,38 @@ class AsyncAddressService:
     """Async address service using AsyncSession with Redis caching."""
     
     # Cache TTLs (in seconds)
-    ADDRESS_CACHE_TTL = 3600  # 60 minutes - addresses change infrequently
+    ADDRESS_CACHE_TTL = 3600  # 60 minutes
     USER_ADDRESSES_CACHE_TTL = 1800  # 30 minutes
     
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    # --- CACHE HELPER METHODS ---
-    
+    # --- CACHE HELPERS ---
+
+    def _serialize_address(self, address: models.Address) -> dict:
+        """Safe serialization of Address ORM object to Dict."""
+        return {
+            "id": address.id,
+            "user_id": address.user_id,
+            "label": address.label,
+            "address_line": address.address_line,
+            "instructions": address.instructions,
+            "latitude": address.latitude,
+            "longitude": address.longitude,
+            "is_default": address.is_default,
+            "created_at": address.created_at.isoformat() if address.created_at else None,
+        }
+
+    async def _cache_set(self, key: str, data: Any, ttl: int):
+        try:
+            await redis_client.setex(key, ttl, json.dumps(data))
+        except Exception:
+            pass
+
     async def _invalidate_address_cache(self, address_id: int = None, user_id: int = None):
-        """Invalidate all cache entries related to an address."""
+        """
+        Invalidate single address, user list, and default address pointer.
+        """
         keys_to_delete = []
         
         if address_id:
@@ -31,54 +53,13 @@ class AsyncAddressService:
         
         if user_id:
             keys_to_delete.append(f"addresses:user:{user_id}")
+            keys_to_delete.append(f"address:default:{user_id}") # Fix: Clear default cache too
         
         try:
             if keys_to_delete:
                 await redis_client.delete(*keys_to_delete)
         except Exception:
             pass
-
-    async def _cache_address(self, address: models.Address):
-        """Cache a single address."""
-        try:
-            address_data = {
-                "id": address.id,
-                "user_id": address.user_id,
-                "label": address.label,
-                "address_line": address.address_line,
-                "instructions": address.instructions,
-                "latitude": address.latitude,
-                "longitude": address.longitude,
-                "is_default": address.is_default,
-                "created_at": address.created_at.isoformat() if address.created_at else None,
-            }
-            
-            await redis_client.setex(
-                f"address:{address.id}",
-                self.ADDRESS_CACHE_TTL,
-                json.dumps(address_data)
-            )
-        except Exception:
-            pass
-
-    async def _get_cached_address(self, address_id: int) -> Optional[dict]:
-        """Get cached address data."""
-        try:
-            cached = await redis_client.get(f"address:{address_id}")
-            if cached:
-                return json.loads(cached)
-        except Exception:
-            pass
-        return None
-
-    async def _reconstruct_address_from_cache(self, cached_data: dict) -> models.Address:
-        """Reconstruct Address model from cached data."""
-        # Parse datetime if present
-        if "created_at" in cached_data and cached_data["created_at"]:
-            from datetime import datetime
-            cached_data["created_at"] = datetime.fromisoformat(cached_data["created_at"])
-        
-        return models.Address(**cached_data)
 
     # --- HELPER METHODS ---
     
@@ -89,61 +70,55 @@ class AsyncAddressService:
             .where(models.Address.user_id == user_id)
             .values(is_default=False)
         )
-        # Invalidate user's addresses cache since defaults changed
-        await self._invalidate_address_cache(user_id=user_id)
+        # We don't invalidate here manually; the calling method usually handles invalidation
 
     # --- SERVICE METHODS ---
 
-    async def get_address(self, address_id: int, user_id: int = None) -> models.Address:
-        """Get address by ID with ownership check."""
-        # Try cache first
-        cached_data = await self._get_cached_address(address_id)
-        if cached_data:
-            address = self._reconstruct_address_from_cache(cached_data)
-            # Verify ownership if user_id provided
-            if user_id and address.user_id != user_id:
-                raise NotFoundError("Address", address_id)
-            return address
+    async def get_address(self, address_id: int, user_id: int = None) -> Union[models.Address, dict]:
+        """Get address by ID. Returns Dict (Cache) or Object (DB)."""
+        # 1. Try Cache
+        try:
+            cached = await redis_client.get(f"address:{address_id}")
+            if cached:
+                address_dict = json.loads(cached)
+                # Verify ownership on cached data
+                if user_id and address_dict["user_id"] != user_id:
+                     raise NotFoundError("Address", address_id)
+                return address_dict
+        except NotFoundError:
+            raise
+        except Exception:
+            pass
         
-        # Cache miss - fetch from database
+        # 2. DB Fallback
         stmt = select(models.Address).where(models.Address.id == address_id)
         if user_id:
             stmt = stmt.where(models.Address.user_id == user_id)
         
         result = await self.db.execute(stmt)
-        address = result.scalar_one_or_none()
+        address = result.unique().scalar_one_or_none()
         
         if not address:
             raise NotFoundError("Address", address_id)
         
-        # Cache the address
-        await self._cache_address(address)
+        # 3. Cache
+        await self._cache_set(f"address:{address.id}", self._serialize_address(address), self.ADDRESS_CACHE_TTL)
         
         return address
 
-    async def get_user_addresses(self, user_id: int) -> List[models.Address]:
-        """Get all addresses for a user, sorted by default first, then newest."""
-        # Try cache first
+    async def get_user_addresses(self, user_id: int):
+        """Get all addresses for a user."""
         cache_key = f"addresses:user:{user_id}"
+        
+        # 1. Try Cache (Full List)
         try:
             cached = await redis_client.get(cache_key)
             if cached:
-                address_ids = json.loads(cached)
-                addresses = []
-                for address_id in address_ids:
-                    try:
-                        address = await self.get_address(address_id, user_id)
-                        addresses.append(address)
-                    except NotFoundError:
-                        # Address was deleted, invalidate cache
-                        await redis_client.delete(cache_key)
-                        break
-                else:
-                    return addresses
+                return json.loads(cached)
         except Exception:
             pass
         
-        # Cache miss - fetch from database
+        # 2. DB Fallback
         result = await self.db.execute(
             select(models.Address)
             .where(models.Address.user_id == user_id)
@@ -151,44 +126,28 @@ class AsyncAddressService:
         )
         addresses = result.scalars().all()
         
-        # Cache the address IDs (maintaining order)
-        try:
-            address_ids = [address.id for address in addresses]
-            await redis_client.setex(
-                cache_key,
-                self.USER_ADDRESSES_CACHE_TTL,
-                json.dumps(address_ids)
-            )
-            # Cache individual addresses
-            for address in addresses:
-                await self._cache_address(address)
-        except Exception:
-            pass
+        # 3. Serialize & Cache
+        serialized_list = [self._serialize_address(a) for a in addresses]
+        await self._cache_set(cache_key, serialized_list, self.USER_ADDRESSES_CACHE_TTL)
         
         return addresses
 
-    async def create_address(
-        self, 
-        address_data: AddressCreate, 
-        user_id: int
-    ) -> models.Address:
-        """Create a new address for a user."""
-        # Check if this is the user's first address
+    async def create_address(self, address_data: AddressCreate, user_id: int) -> models.Address:
+        """Create a new address."""
+        # Check existing count directly from DB
         result = await self.db.execute(
             select(models.Address).where(models.Address.user_id == user_id)
         )
         existing_count = len(result.scalars().all())
         
-        # If first address, force it to be default
+        # Logic: First address is always default
         is_default_value = address_data.is_default
         if existing_count == 0:
             is_default_value = True
         
-        # If setting as default, unset others first
         if is_default_value:
             await self._unset_other_defaults(user_id)
         
-        # Create the address
         new_address = models.Address(
             user_id=user_id,
             label=address_data.label,
@@ -203,68 +162,68 @@ class AsyncAddressService:
         await self.db.commit()
         await self.db.refresh(new_address)
         
-        # Invalidate user's addresses cache
+        # Invalidate Cache
         await self._invalidate_address_cache(user_id=user_id)
         
-        # Cache the new address
-        await self._cache_address(new_address)
+        # Cache specific item
+        await self._cache_set(f"address:{new_address.id}", self._serialize_address(new_address), self.ADDRESS_CACHE_TTL)
         
         return new_address
 
-    async def update_address(
-        self,
-        address_id: int,
-        address_data: AddressUpdate,
-        user_id: int
-    ) -> models.Address:
+    async def update_address(self, address_id: int, address_data: AddressUpdate, user_id: int) -> models.Address:
         """Update an existing address."""
-        # Fetch and verify ownership
-        address = await self.get_address(address_id, user_id)
+        # 1. Fetch directly from DB (Locking/Safety) - NEVER use get_address() here
+        stmt = select(models.Address).where(models.Address.id == address_id, models.Address.user_id == user_id)
+        result = await self.db.execute(stmt)
+        address = result.unique().scalar_one_or_none()
         
-        # If setting as default, clear others
+        if not address:
+            raise NotFoundError("Address", address_id)
+        
+        # 2. Handle Default Logic
         if address_data.is_default is True:
             await self._unset_other_defaults(user_id)
         
-        # Update fields
+        # 3. Update Fields
         for field, value in address_data.model_dump(exclude_unset=True).items():
             setattr(address, field, value)
         
-        self.db.add(address)
         await self.db.commit()
         await self.db.refresh(address)
         
-        # Invalidate cache
-        await self._invalidate_address_cache(address_id, user_id)
-        
-        # Cache updated address
-        await self._cache_address(address)
+        # 4. Invalidate Cache
+        await self._invalidate_address_cache(address_id=address_id, user_id=user_id)
         
         return address
 
     async def delete_address(self, address_id: int, user_id: int):
         """Delete an address."""
-        # Fetch and verify ownership
-        address = await self.get_address(address_id, user_id)
+        # Fetch directly from DB
+        stmt = select(models.Address).where(models.Address.id == address_id, models.Address.user_id == user_id)
+        result = await self.db.execute(stmt)
+        address = result.unique().scalar_one_or_none()
+        
+        if not address:
+            raise NotFoundError("Address", address_id)
         
         await self.db.delete(address)
         await self.db.commit()
         
-        # Invalidate cache
-        await self._invalidate_address_cache(address_id, user_id)
+        # Invalidate Cache
+        await self._invalidate_address_cache(address_id=address_id, user_id=user_id)
 
-    async def get_default_address(self, user_id: int) -> Optional[models.Address]:
-        """Get user's default address (useful for orders)."""
-        # Check cache first
+    async def get_default_address(self, user_id: int) -> Union[models.Address, dict, None]:
+        """Get user's default address."""
+        # 1. Try Cache
         cache_key = f"address:default:{user_id}"
         try:
             cached = await redis_client.get(cache_key)
             if cached:
-                address_data = json.loads(cached)
-                return self._reconstruct_address_from_cache(address_data)
+                return json.loads(cached)
         except Exception:
             pass
         
-        # Cache miss - fetch from database
+        # 2. DB Fallback
         result = await self.db.execute(
             select(models.Address)
             .where(models.Address.user_id == user_id)
@@ -272,65 +231,25 @@ class AsyncAddressService:
         )
         address = result.scalar_one_or_none()
         
+        # 3. Cache
         if address:
-            # Cache default address with shorter TTL (might change)
-            try:
-                address_data = {
-                    "id": address.id,
-                    "user_id": address.user_id,
-                    "label": address.label,
-                    "address_line": address.address_line,
-                    "instructions": address.instructions,
-                    "latitude": address.latitude,
-                    "longitude": address.longitude,
-                    "is_default": address.is_default,
-                    "created_at": address.created_at.isoformat() if address.created_at else None,
-                }
-                await redis_client.setex(
-                    cache_key,
-                    600,  # 10 minutes (shorter TTL for default)
-                    json.dumps(address_data)
-                )
-            except Exception:
-                pass
+            await self._cache_set(cache_key, self._serialize_address(address), 600)
         
         return address
 
-    async def validate_coordinates(
-        self, 
-        latitude: float, 
-        longitude: float
-    ) -> bool:
-        """Validate that coordinates are within acceptable range."""
-        # Basic validation
-        if not (-90 <= latitude <= 90):
-            return False
-        if not (-180 <= longitude <= 180):
-            return False
+    async def validate_coordinates(self, latitude: float, longitude: float) -> bool:
+        if not (-90 <= latitude <= 90): return False
+        if not (-180 <= longitude <= 180): return False
         return True
 
-    async def calculate_distance(
-        self,
-        lat1: float,
-        lon1: float,
-        lat2: float,
-        lon2: float
-    ) -> float:
-        """
-        Calculate distance between two coordinates in kilometers.
-        Uses Haversine formula.
-        """
+    async def calculate_distance(self, lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Haversine formula."""
         from math import radians, sin, cos, sqrt, atan2
-        
-        R = 6371  # Earth's radius in kilometers
-        
+        R = 6371
         lat1_rad = radians(lat1)
         lat2_rad = radians(lat2)
         delta_lat = radians(lat2 - lat1)
         delta_lon = radians(lon2 - lon1)
-        
         a = sin(delta_lat / 2)**2 + cos(lat1_rad) * cos(lat2_rad) * sin(delta_lon / 2)**2
         c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        
-        distance = R * c
-        return distance
+        return R * c
