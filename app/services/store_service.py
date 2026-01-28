@@ -22,29 +22,40 @@ class AsyncStoreService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    # --- HELPER: Handle Dict vs Object ---
+    def _get_attr(self, obj: Union[dict, Any], key: str):
+        """Safely get attribute from either Dict (Cache) or Object (DB)."""
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key)
+
     # --- CACHE HELPERS ---
 
     def _serialize_store(self, store: models.Store) -> dict:
         """Safe serialization of Store ORM object to Dict."""
-        return {
-            "id": store.id,
-            "name": store.name,
-            "description": store.description,
-            # "address": store.address,
-            "owner_id": store.owner_id,
-            "products": [
-                {
-                    "id": p.id,
-                    "name": p.name,
-                    "description": p.description,
-                    "price": float(p.price),
-                    "stock": p.stock,
-                    "store_id": p.store_id,
+        # Use _get_attr to safely access nested products whether store is Dict or Object
+        products = self._get_attr(store, "products")
+        serialized_products = []
+        if products:
+            for p in products:
+                serialized_products.append({
+                    "id": self._get_attr(p, "id"),
+                    "name": self._get_attr(p, "name"),
+                    "description": self._get_attr(p, "description"),
+                    "price": float(self._get_attr(p, "price")),
+                    "stock": self._get_attr(p, "stock"),
+                    "store_id": self._get_attr(p, "store_id"),
                     # "category": p.category,
                     # "image_url": p.image_url,
-                }
-                for p in store.products
-            ] if store.products else []
+                })
+
+        return {
+            "id": self._get_attr(store, "id"),
+            "name": self._get_attr(store, "name"),
+            "description": self._get_attr(store, "description"),
+            # "address": store.address,
+            "owner_id": self._get_attr(store, "owner_id"),
+            "products": serialized_products
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):

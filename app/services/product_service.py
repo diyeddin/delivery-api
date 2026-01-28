@@ -21,17 +21,24 @@ class AsyncProductService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    # --- HELPER: Handle Dict vs Object ---
+    def _get_attr(self, obj: Union[dict, Any], key: str):
+        """Safely get attribute from either Dict (Cache) or Object (DB)."""
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key)
+
     # --- CACHE HELPERS ---
 
     def _serialize_product(self, product: models.Product) -> dict:
         """Safe serialization of Product ORM object."""
         return {
-            "id": product.id,
-            "name": product.name,
-            "description": product.description,
-            "price": float(product.price),
-            "stock": product.stock,
-            "store_id": product.store_id,
+            "id": self._get_attr(product, "id"),
+            "name": self._get_attr(product, "name"),
+            "description": self._get_attr(product, "description"),
+            "price": float(self._get_attr(product, "price")),
+            "stock": self._get_attr(product, "stock"),
+            "store_id": self._get_attr(product, "store_id"),
             # "category": product.category,
             # "image_url": product.image_url,
         }
@@ -233,8 +240,8 @@ class AsyncProductService:
         """Fast check (Read Only)."""
         # Can use cache here safely for a "soft" check
         product = await self.get_product(product_id)
-        # Handle dict vs object
-        stock = product["stock"] if isinstance(product, dict) else product.stock
+        # Handle dict vs object safely
+        stock = self._get_attr(product, "stock")
         return stock >= quantity
 
     async def reserve_stock(self, product_id: int, quantity: int) -> models.Product:

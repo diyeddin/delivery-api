@@ -22,6 +22,13 @@ class AsyncDriverService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    # --- HELPER: Handle Dict vs Object ---
+    def _get_attr(self, obj: Union[dict, Any], key: str):
+        """Safely get attribute from either Dict (Cache) or Object (DB)."""
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key)
+
     # --- CACHE HELPERS ---
 
     def _serialize_order(self, order: models.Order) -> dict:
@@ -29,26 +36,39 @@ class AsyncDriverService:
         Safe serialization of Order ORM object to Dict.
         Must match OrderService serialization for consistency.
         """
-        return {
-            "id": order.id,
-            "user_id": order.user_id,
-            "store_id": order.store_id,
-            "driver_id": order.driver_id,
-            "status": order.status.value,
-            "total_price": float(order.total_price),
-            "delivery_address": order.delivery_address,
-            "assigned_at": order.assigned_at.isoformat() if order.assigned_at else None,
-            "created_at": order.created_at.isoformat() if order.created_at else None,
-            "items": [
-                {
-                    "id": item.id,
-                    "product_id": item.product_id,
+        # Handle dates safely
+        assigned_at = self._get_attr(order, "assigned_at")
+        if assigned_at and hasattr(assigned_at, 'isoformat'):
+            assigned_at = assigned_at.isoformat()
+            
+        created_at = self._get_attr(order, "created_at")
+        if created_at and hasattr(created_at, 'isoformat'):
+            created_at = created_at.isoformat()
+
+        # Handle items safely
+        items = self._get_attr(order, "items")
+        serialized_items = []
+        if items:
+            for item in items:
+                serialized_items.append({
+                    "id": self._get_attr(item, "id"),
+                    "product_id": self._get_attr(item, "product_id"),
                     # "product_name": item.product.name if item.product else f"Item {item.product_id}",
-                    "quantity": item.quantity,
-                    "price_at_purchase": float(item.price_at_purchase)
-                }
-                for item in order.items
-            ] if order.items else []
+                    "quantity": self._get_attr(item, "quantity"),
+                    "price_at_purchase": float(self._get_attr(item, "price_at_purchase"))
+                })
+
+        return {
+            "id": self._get_attr(order, "id"),
+            "user_id": self._get_attr(order, "user_id"),
+            "store_id": self._get_attr(order, "store_id"),
+            "driver_id": self._get_attr(order, "driver_id"),
+            "status": self._get_attr(order, "status") if isinstance(self._get_attr(order, "status"), str) else self._get_attr(order, "status").value,
+            "total_price": float(self._get_attr(order, "total_price")),
+            "delivery_address": self._get_attr(order, "delivery_address"),
+            "assigned_at": assigned_at,
+            "created_at": created_at,
+            "items": serialized_items
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):
@@ -251,11 +271,11 @@ class AsyncDriverService:
         
         for driver in active_drivers:
             # Handle Dict vs Object
-            d_lat = driver["latitude"] if isinstance(driver, dict) else driver.latitude
-            d_lng = driver["longitude"] if isinstance(driver, dict) else driver.longitude
-            d_id = driver["id"] if isinstance(driver, dict) else driver.id
-            d_name = driver["name"] if isinstance(driver, dict) else driver.name
-            d_active = driver["is_active"] if isinstance(driver, dict) else driver.is_active
+            d_lat = self._get_attr(driver, "latitude")
+            d_lng = self._get_attr(driver, "longitude")
+            d_id = self._get_attr(driver, "id")
+            d_name = self._get_attr(driver, "name")
+            d_active = self._get_attr(driver, "is_active")
 
             if d_lat and d_lng:
                 distance = await address_service.calculate_distance(latitude, longitude, d_lat, d_lng)

@@ -23,21 +23,33 @@ class AsyncUserService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    # --- CACHE HELPER METHODS ---
+    # --- HELPER: Handle Dict vs Object ---
+    def _get_attr(self, obj: Union[dict, Any], key: str):
+        """Safely get attribute from either Dict (Cache) or Object (DB)."""
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key)
+
+    # --- CACHE HELPERS ---
     
     def _serialize_user(self, user: models.User) -> dict:
         """Safe serialization of User ORM object to Dict."""
+        # Handle Enum vs String for role
+        role = self._get_attr(user, "role")
+        if hasattr(role, "value"):
+            role = role.value
+
         return {
-            "id": user.id,
-            "email": user.email,
-            "name": user.name,
-            "role": user.role.value,
-            "address": user.address,
+            "id": self._get_attr(user, "id"),
+            "email": self._get_attr(user, "email"),
+            "name": self._get_attr(user, "name"),
+            "role": role,
+            "address": self._get_attr(user, "address"),
             # "phone": user.phone,
-            "latitude": user.latitude,
-            "longitude": user.longitude,
-            "is_active": user.is_active,
-            "notification_token": user.notification_token,
+            "latitude": self._get_attr(user, "latitude"),
+            "longitude": self._get_attr(user, "longitude"),
+            "is_active": self._get_attr(user, "is_active"),
+            "notification_token": self._get_attr(user, "notification_token"),
             # "created_at": user.created_at.isoformat() if user.created_at else None,
         }
 
@@ -272,22 +284,19 @@ class AsyncUserService:
         
         # Fallback to database
         user = await self.get_user(driver_id)
-        # Handle if we got a dict back from get_user
-        if isinstance(user, dict):
-            if user.get("latitude") and user.get("longitude"):
-                return {
-                    "user_id": user["id"],
-                    "latitude": user["latitude"],
-                    "longitude": user["longitude"],
-                    "is_active": user["is_active"]
-                }
-        else:
-            if user.latitude and user.longitude:
-                return {
-                    "user_id": user.id,
-                    "latitude": user.latitude,
-                    "longitude": user.longitude,
-                    "is_active": user.is_active
-                }
+        
+        # Safe access using _get_attr
+        lat = self._get_attr(user, "latitude")
+        lng = self._get_attr(user, "longitude")
+        uid = self._get_attr(user, "id")
+        active = self._get_attr(user, "is_active")
+        
+        if lat and lng:
+            return {
+                "user_id": uid,
+                "latitude": lat,
+                "longitude": lng,
+                "is_active": active
+            }
         
         return None

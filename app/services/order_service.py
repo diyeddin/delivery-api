@@ -24,6 +24,13 @@ class AsyncOrderService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    # --- HELPER: Handle Dict vs Object ---
+    def _get_attr(self, obj: Union[dict, Any], key: str):
+        """Safely get attribute from either Dict (Cache) or Object (DB)."""
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key)
+
     # --- CACHE HELPERS ---
 
     def _serialize_order(self, order: models.Order) -> dict:
@@ -68,8 +75,11 @@ class AsyncOrderService:
         1. The order itself
         2. The 'Available Orders' list (it might have been removed/added)
         3. The specific User's order list
+        4. The Driver's Available Orders list (CRITICAL FIX)
         """
-        keys = [f"order:{order_id}", "orders:available"]
+        keys = [f"order:{order_id}",
+                "orders:available",
+                "drivers:available_orders"]
         if user_id:
             keys.append(f"orders:user:{user_id}")
         try:
@@ -92,9 +102,14 @@ class AsyncOrderService:
         for item in order_data.items:
             product = await product_svc.get_product(item.product_id)
             if not await product_svc.check_stock_availability(item.product_id, item.quantity):
-                raise InsufficientStockError(product.name, item.quantity, product.stock)
+                # Fix: Safely get name/stock from dict or object
+                p_name = self._get_attr(product, "name")
+                p_stock = self._get_attr(product, "stock")
+                raise InsufficientStockError(p_name, item.quantity, p_stock)
             
-            validated_items.append({"schema": item, "product": product, "store_id": product.store_id})
+            # Fix: Safely get store_id from dict or object
+            p_store_id = self._get_attr(product, "store_id")
+            validated_items.append({"schema": item, "product": product, "store_id": p_store_id})
 
         # 2. Group by Store
         validated_items.sort(key=lambda x: x["store_id"])
@@ -110,14 +125,18 @@ class AsyncOrderService:
                     product = item_data["product"]
                     qty = item_data["schema"].quantity
                     
+                    # Fix: Safely get id/price from dict or object
+                    p_id = self._get_attr(product, "id")
+                    p_price = self._get_attr(product, "price")
+                    
                     order_item = models.OrderItem(
-                        product_id=product.id,
+                        product_id=p_id,
                         quantity=qty,
-                        price_at_purchase=product.price
+                        price_at_purchase=p_price
                     )
                     db_order_items.append(order_item)
-                    total_price += product.price * qty
-                    await product_svc.reserve_stock(product.id, qty)
+                    total_price += p_price * qty
+                    await product_svc.reserve_stock(p_id, qty)
 
                 db_order = models.Order(
                     user_id=current_user.id,
@@ -311,41 +330,44 @@ class AsyncOrderService:
         return order
 
     async def accept_order_atomic(self, order_id: int, driver_id: int) -> models.Order:
-        """Atomic assignment."""
-        if self.db.in_transaction():
-            trans_ctx = self.db.begin_nested()
-        else:
-            trans_ctx = self.db.begin()
-
-        async with trans_ctx:
+        """Atomic assignment with Manual Commit to ensure persistence."""
+        try:
+            # 1. Fetch & Lock (Select For Update)
+            # We do NOT use 'async with' here to avoid the context manager conflict.
             stmt = (
                 select(models.Order)
-                .options(selectinload(models.Order.items)) # Fix: Load items explicitly
+                .options(selectinload(models.Order.items)) 
                 .with_for_update()
                 .where(models.Order.id == order_id)
             )
             result = await self.db.execute(stmt)
             order = result.unique().scalar_one_or_none()
             
-            if not order: raise NotFoundError("Order", order_id)
+            if not order: 
+                raise NotFoundError("Order", order_id)
             
-            # Simple State Check
+            # 2. Validate
             if order.status not in [models.OrderStatus.pending, models.OrderStatus.confirmed]:
                  raise BadRequestError(f"Cannot accept order in status {order.status}")
             
             if order.driver_id and order.driver_id != driver_id:
                  raise BadRequestError("Order already assigned to another driver")
 
+            # 3. Update
             order.driver_id = driver_id
             order.status = models.OrderStatus.assigned
             order.assigned_at = datetime.now(timezone.utc)
             
+            # 4. FORCE COMMIT (Crucial: Writes to Disk)
             await self.db.commit()
             
-            # Refresh to ensure items are loaded before returning
+            # 5. Refresh & Invalidate
             await self.db.refresh(order, attribute_names=["items"])
-            
-            # Invalidate Cache
             await self._invalidate_order_flow(order_id, order.user_id)
             
             return order
+
+        except Exception as e:
+            # Rollback on any error to release the lock
+            await self.db.rollback()
+            raise e

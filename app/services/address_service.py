@@ -20,6 +20,13 @@ class AsyncAddressService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    # --- HELPER: Handle Dict vs Object ---
+    def _get_attr(self, obj: Union[dict, Any], key: str):
+        """Safely get attribute from either Dict (Cache) or Object (DB)."""
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key)
+
     # --- CACHE HELPERS ---
 
     def _serialize_address(self, address: models.Address) -> dict:
@@ -53,7 +60,7 @@ class AsyncAddressService:
         
         if user_id:
             keys_to_delete.append(f"addresses:user:{user_id}")
-            keys_to_delete.append(f"address:default:{user_id}") # Fix: Clear default cache too
+            keys_to_delete.append(f"address:default:{user_id}") 
         
         try:
             if keys_to_delete:
@@ -70,7 +77,6 @@ class AsyncAddressService:
             .where(models.Address.user_id == user_id)
             .values(is_default=False)
         )
-        # We don't invalidate here manually; the calling method usually handles invalidation
 
     # --- SERVICE METHODS ---
 
@@ -81,9 +87,11 @@ class AsyncAddressService:
             cached = await redis_client.get(f"address:{address_id}")
             if cached:
                 address_dict = json.loads(cached)
-                # Verify ownership on cached data
-                if user_id and address_dict["user_id"] != user_id:
-                     raise NotFoundError("Address", address_id)
+                # Verify ownership safely using _get_attr
+                if user_id:
+                    owner_id = self._get_attr(address_dict, "user_id")
+                    if owner_id != user_id:
+                        raise NotFoundError("Address", address_id)
                 return address_dict
         except NotFoundError:
             raise
@@ -172,7 +180,7 @@ class AsyncAddressService:
 
     async def update_address(self, address_id: int, address_data: AddressUpdate, user_id: int) -> models.Address:
         """Update an existing address."""
-        # 1. Fetch directly from DB (Locking/Safety) - NEVER use get_address() here
+        # 1. Fetch directly from DB (Locking/Safety)
         stmt = select(models.Address).where(models.Address.id == address_id, models.Address.user_id == user_id)
         result = await self.db.execute(stmt)
         address = result.unique().scalar_one_or_none()
