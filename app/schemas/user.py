@@ -1,4 +1,5 @@
 # app/schemas/user.py
+from datetime import datetime
 from pydantic import BaseModel, EmailStr, ConfigDict, Field, field_validator
 from typing import Optional
 
@@ -29,12 +30,14 @@ class UserCreate(BaseModel):
         return v.strip() if v else v
 
 class UserOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
+    model_config = ConfigDict(from_attributes=True, extra='ignore', frozen=True, str_strip_whitespace=True)
     
     id: int
     email: EmailStr
     name: Optional[str] = None
     role: str
+    created_at: Optional[datetime] = None
+    
     
     # Driver fields
     is_active: bool = True

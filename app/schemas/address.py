@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 
@@ -10,7 +11,7 @@ class AddressBase(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     is_default: bool = False
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
 
 class AddressCreate(AddressBase):
     pass
