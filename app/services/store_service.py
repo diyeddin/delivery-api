@@ -30,7 +30,7 @@ class AsyncStoreService:
             "id": store.id,
             "name": store.name,
             "description": store.description,
-            "address": store.address,
+            # "address": store.address,
             "owner_id": store.owner_id,
             "products": [
                 {
@@ -40,8 +40,8 @@ class AsyncStoreService:
                     "price": float(p.price),
                     "stock": p.stock,
                     "store_id": p.store_id,
-                    "category": p.category,
-                    "image_url": p.image_url,
+                    # "category": p.category,
+                    # "image_url": p.image_url,
                 }
                 for p in store.products
             ] if store.products else []
@@ -234,8 +234,8 @@ class AsyncStoreService:
                 "price": float(p.price),
                 "stock": p.stock,
                 "store_id": p.store_id,
-                "category": p.category,
-                "image_url": p.image_url,
+                # "category": p.category,
+                # "image_url": p.image_url,
             }
             for p in products
         ]

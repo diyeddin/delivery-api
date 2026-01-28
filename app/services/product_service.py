@@ -32,8 +32,8 @@ class AsyncProductService:
             "price": float(product.price),
             "stock": product.stock,
             "store_id": product.store_id,
-            "category": product.category,
-            "image_url": product.image_url,
+            # "category": product.category,
+            # "image_url": product.image_url,
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):

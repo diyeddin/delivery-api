@@ -33,12 +33,12 @@ class AsyncUserService:
             "name": user.name,
             "role": user.role.value,
             "address": user.address,
-            "phone": user.phone,
+            # "phone": user.phone,
             "latitude": user.latitude,
             "longitude": user.longitude,
             "is_active": user.is_active,
             "notification_token": user.notification_token,
-            "created_at": user.created_at.isoformat() if user.created_at else None,
+            # "created_at": user.created_at.isoformat() if user.created_at else None,
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):
@@ -166,8 +166,8 @@ class AsyncUserService:
             user.name = update_data.name
         if update_data.address is not None:
             user.address = update_data.address
-        if update_data.phone is not None:
-            user.phone = update_data.phone
+        # if update_data.phone is not None:
+        #     user.phone = update_data.phone
         
         await self.db.commit()
         await self.db.refresh(user)

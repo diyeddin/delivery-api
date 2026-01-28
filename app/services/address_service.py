@@ -33,7 +33,7 @@ class AsyncAddressService:
             "latitude": address.latitude,
             "longitude": address.longitude,
             "is_default": address.is_default,
-            "created_at": address.created_at.isoformat() if address.created_at else None,
+            # "created_at": address.created_at.isoformat() if address.created_at else None,
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):

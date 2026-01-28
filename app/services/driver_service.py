@@ -43,7 +43,7 @@ class AsyncDriverService:
                 {
                     "id": item.id,
                     "product_id": item.product_id,
-                    "product_name": item.product.name if item.product else f"Item {item.product_id}",
+                    # "product_name": item.product.name if item.product else f"Item {item.product_id}",
                     "quantity": item.quantity,
                     "price_at_purchase": float(item.price_at_purchase)
                 }
