@@ -45,12 +45,12 @@ class AsyncUserService:
             "name": self._get_attr(user, "name"),
             "role": role,
             "address": self._get_attr(user, "address"),
-            # "phone": user.phone,
+            # "phone": self._get_attr(user, "phone"),
             "latitude": self._get_attr(user, "latitude"),
             "longitude": self._get_attr(user, "longitude"),
             "is_active": self._get_attr(user, "is_active"),
             "notification_token": self._get_attr(user, "notification_token"),
-            # "created_at": user.created_at.isoformat() if user.created_at else None,
+            "created_at": self._get_attr(user, "created_at").isoformat() if self._get_attr(user, "created_at") else None,
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):

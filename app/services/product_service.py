@@ -39,7 +39,7 @@ class AsyncProductService:
             "price": float(self._get_attr(product, "price")),
             "stock": self._get_attr(product, "stock"),
             "store_id": self._get_attr(product, "store_id"),
-            # "category": product.category,
+            "category": self._get_attr(product, "category") ,
             # "image_url": product.image_url,
         }
 

@@ -27,6 +27,7 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     address = Column(String, nullable=True) 
     role = Column(Enum(UserRole), default=UserRole.customer)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     # Driver Location & Status
     latitude = Column(Float, nullable=True)
@@ -54,6 +55,7 @@ class Address(Base):
     longitude = Column(Float, nullable=True)
     instructions = Column(String, nullable=True)
     is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="addresses")
 
@@ -80,6 +82,7 @@ class Product(Base):
     store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True) 
+    category = Column(String, nullable=True)
     price = Column(Float, nullable=False)
     stock = Column(Integer, default=0)
 

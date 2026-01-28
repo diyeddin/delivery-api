@@ -39,23 +39,23 @@ class AsyncOrderService:
         Crucial because we cannot cache SQLAlchemy objects directly.
         """
         return {
-            "id": order.id,
-            "user_id": order.user_id,
-            "store_id": order.store_id,
-            "driver_id": order.driver_id,
-            "status": order.status.value,
-            "total_price": float(order.total_price),
-            "delivery_address": order.delivery_address,
-            "assigned_at": order.assigned_at.isoformat() if order.assigned_at else None,
-            "created_at": order.created_at.isoformat() if order.created_at else None,
+            "id": self._get_attr(order, "id"),
+            "user_id": self._get_attr(order, "user_id"),
+            "store_id": self._get_attr(order, "store_id"),
+            "driver_id": self._get_attr(order, "driver_id"),
+            "status": self._get_attr(order, "status").value,
+            "total_price": float(self._get_attr(order, "total_price")),
+            "delivery_address": self._get_attr(order, "delivery_address"),
+            "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
+            "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
             # Flatten items for caching
             "items": [
                 {
-                    "id": item.id,
-                    "product_id": item.product_id,
+                    "id": self._get_attr(item, "id"),
+                    "product_id": self._get_attr(item, "product_id"),
                     # "product_name": item.product.name if item.product else f"Item {item.product_id}",
-                    "quantity": item.quantity,
-                    "price_at_purchase": float(item.price_at_purchase)
+                    "quantity": self._get_attr(item, "quantity"),
+                    "price_at_purchase": float(self._get_attr(item, "price_at_purchase"))
                 }
                 for item in order.items
             ] if order.items else []

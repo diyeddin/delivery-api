@@ -10,6 +10,7 @@ class AddressBase(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     is_default: bool = False
+    created_at: Optional[str] = None
 
 class AddressCreate(AddressBase):
     pass

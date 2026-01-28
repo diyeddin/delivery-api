@@ -66,8 +66,8 @@ class AsyncDriverService:
             "status": self._get_attr(order, "status") if isinstance(self._get_attr(order, "status"), str) else self._get_attr(order, "status").value,
             "total_price": float(self._get_attr(order, "total_price")),
             "delivery_address": self._get_attr(order, "delivery_address"),
-            "assigned_at": assigned_at,
-            "created_at": created_at,
+            "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
+            "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
             "items": serialized_items
         }
 

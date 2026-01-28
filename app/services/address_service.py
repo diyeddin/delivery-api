@@ -32,15 +32,15 @@ class AsyncAddressService:
     def _serialize_address(self, address: models.Address) -> dict:
         """Safe serialization of Address ORM object to Dict."""
         return {
-            "id": address.id,
-            "user_id": address.user_id,
-            "label": address.label,
-            "address_line": address.address_line,
-            "instructions": address.instructions,
-            "latitude": address.latitude,
-            "longitude": address.longitude,
-            "is_default": address.is_default,
-            # "created_at": address.created_at.isoformat() if address.created_at else None,
+            "id": self._get_attr(address, "id"),
+            "user_id": self._get_attr(address, "user_id"),
+            "label": self._get_attr(address, "label"),
+            "address_line": self._get_attr(address, "address_line"),
+            "instructions": self._get_attr(address, "instructions"),
+            "latitude": self._get_attr(address, "latitude"),
+            "longitude": self._get_attr(address, "longitude"),
+            "is_default": self._get_attr(address, "is_default"),
+            "created_at": self._get_attr(address, "created_at").isoformat() if self._get_attr(address, "created_at") else None,
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):

@@ -7,6 +7,7 @@ class ProductBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="Product name")
     # ADDED: This was missing, causing the crash because smoke_test sends it
     description: Optional[str] = Field(None, description="Product description")
+    category: Optional[str] = Field(None, description="Product category")
     
     price: float = Field(..., gt=0, description="Product price must be positive")
     stock: int = Field(default=0, ge=0, description="Stock quantity must be non-negative")
@@ -26,6 +27,7 @@ class ProductUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = Field(None) # Added here too
+    category: Optional[str] = Field(None)
     price: Optional[float] = Field(None, gt=0)
     stock: Optional[int] = Field(None, ge=0)
     # Usually we don't allow moving a product to a different store via Update, 

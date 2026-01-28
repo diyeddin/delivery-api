@@ -45,7 +45,7 @@ class AsyncStoreService:
                     "price": float(self._get_attr(p, "price")),
                     "stock": self._get_attr(p, "stock"),
                     "store_id": self._get_attr(p, "store_id"),
-                    # "category": p.category,
+                    "category": self._get_attr(p, "category"),
                     # "image_url": p.image_url,
                 })
 
@@ -53,6 +53,7 @@ class AsyncStoreService:
             "id": self._get_attr(store, "id"),
             "name": self._get_attr(store, "name"),
             "description": self._get_attr(store, "description"),
+            "category": self._get_attr(store, "category"),
             # "address": store.address,
             "owner_id": self._get_attr(store, "owner_id"),
             "products": serialized_products
@@ -245,7 +246,7 @@ class AsyncStoreService:
                 "price": float(p.price),
                 "stock": p.stock,
                 "store_id": p.store_id,
-                # "category": p.category,
+                "category": p.category,
                 # "image_url": p.image_url,
             }
             for p in products
