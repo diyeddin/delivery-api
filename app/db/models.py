@@ -66,6 +66,7 @@ class Store(Base):
     category = Column(String)
     description = Column(String, nullable=True)
     image_url = Column(String, nullable=True)
+    banner_url = Column(String, nullable=True)
     
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)

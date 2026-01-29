@@ -11,6 +11,8 @@ class StoreBase(BaseModel):
     name: str
     category: Optional[str] = None
     description: Optional[str] = None
+    image_url: Optional[str] = None
+    banner_url: Optional[str] = None
     
     # Validation: Coordinates are optional but must be valid if provided
     latitude: Optional[float] = Field(None, ge=-90, le=90)
@@ -32,6 +34,8 @@ class StoreUpdate(BaseModel):
     name: Optional[str] = None
     category: Optional[str] = None
     description: Optional[str] = None
+    image_url: Optional[str] = None
+    banner_url: Optional[str] = None
     latitude: Optional[float] = Field(None, ge=-90, le=90)
     longitude: Optional[float] = Field(None, ge=-180, le=180)
     
