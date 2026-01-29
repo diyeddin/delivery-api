@@ -54,6 +54,8 @@ class AsyncStoreService:
             "name": self._get_attr(store, "name"),
             "description": self._get_attr(store, "description"),
             "category": self._get_attr(store, "category"),
+            "image_url": self._get_attr(store, "image_url"),
+            "banner_url": self._get_attr(store, "banner_url"),
             # "address": store.address,
             "owner_id": self._get_attr(store, "owner_id"),
             "products": serialized_products
