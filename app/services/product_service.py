@@ -40,7 +40,7 @@ class AsyncProductService:
             "stock": self._get_attr(product, "stock"),
             "store_id": self._get_attr(product, "store_id"),
             "category": self._get_attr(product, "category") ,
-            # "image_url": product.image_url,
+            "image_url": self._get_attr(product, "image_url"),
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):

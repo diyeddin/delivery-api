@@ -46,7 +46,7 @@ class AsyncStoreService:
                     "stock": self._get_attr(p, "stock"),
                     "store_id": self._get_attr(p, "store_id"),
                     "category": self._get_attr(p, "category"),
-                    # "image_url": p.image_url,
+                    "image_url": self._get_attr(p, "image_url"),
                 })
 
         return {
@@ -247,7 +247,7 @@ class AsyncStoreService:
                 "stock": p.stock,
                 "store_id": p.store_id,
                 "category": p.category,
-                # "image_url": p.image_url,
+                "image_url": p.image_url,
             }
             for p in products
         ]

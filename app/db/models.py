@@ -65,6 +65,7 @@ class Store(Base):
     name = Column(String, nullable=False)
     category = Column(String)
     description = Column(String, nullable=True)
+    image_url = Column(String, nullable=True)
     
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
@@ -85,6 +86,7 @@ class Product(Base):
     category = Column(String, nullable=True)
     price = Column(Float, nullable=False)
     stock = Column(Integer, default=0)
+    image_url = Column(String, nullable=True)
 
     store = relationship("Store", back_populates="products")
     order_items = relationship("OrderItem", back_populates="product") 
@@ -102,6 +104,7 @@ class Order(Base):
     total_price = Column(Float, default=0.0)
 
     delivery_address = Column(String, nullable=True)
+    # delivery_instructions = Column(String, nullable=True) # fix later
     
     user = relationship("User", foreign_keys=[user_id], back_populates="orders")
     driver = relationship("User", foreign_keys=[driver_id], back_populates="deliveries")
