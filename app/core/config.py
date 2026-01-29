@@ -88,6 +88,11 @@ class Settings(BaseSettings):
 
     # Observability
     SLOW_QUERY_THRESHOLD_MS: int = Field(default=100, description="Slow query threshold in milliseconds")
+
+    # Cloudinary Settings for Image Storage
+    CLOUDINARY_CLOUD_NAME: str
+    CLOUDINARY_API_KEY: str
+    CLOUDINARY_API_SECRET: str
     
     @field_validator("SECRET_KEY")
     @classmethod

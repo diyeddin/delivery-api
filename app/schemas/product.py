@@ -8,6 +8,7 @@ class ProductBase(BaseModel):
     # ADDED: This was missing, causing the crash because smoke_test sends it
     description: Optional[str] = Field(None, description="Product description")
     category: Optional[str] = Field(None, description="Product category")
+    image_url: Optional[str] = Field(None, description="URL of the product image")
     
     price: float = Field(..., gt=0, description="Product price must be positive")
     stock: int = Field(default=0, ge=0, description="Stock quantity must be non-negative")
@@ -33,6 +34,7 @@ class ProductUpdate(BaseModel):
     # Usually we don't allow moving a product to a different store via Update, 
     # but if you want to, keep this. Otherwise remove it.
     store_id: Optional[int] = Field(None, gt=0) 
+    image_url: Optional[str] = Field(None, description="URL of the product image")
     
     @field_validator('name')
     @classmethod

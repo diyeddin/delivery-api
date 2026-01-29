@@ -2,16 +2,26 @@ from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
-from app.routers import auth, users, addresses, stores, products, orders, drivers, admin
+from app.routers import auth, uploads, users, addresses, stores, products, orders, drivers, admin
 from app.core.logging import setup_logging, get_logger, LoggingMiddleware
 from app.middleware.idempotency import IdempotencyMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+import cloudinary
 import time
 import os
 # Setup logging
 setup_logging()
 logger = get_logger(__name__)
+
+# --- INITIALIZE CLOUDINARY HERE ---
+cloudinary.config( 
+  cloud_name = settings.CLOUDINARY_CLOUD_NAME, 
+  api_key = settings.CLOUDINARY_API_KEY, 
+  api_secret = settings.CLOUDINARY_API_SECRET,
+  secure = True
+)
+# ----------------------------------
 
 # Create app
 app = FastAPI(
@@ -165,6 +175,7 @@ app.include_router(products.router, prefix=settings.API_V1_STR)
 app.include_router(orders.router, prefix=settings.API_V1_STR)
 app.include_router(drivers.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
+app.include_router(uploads.router, prefix=settings.API_V1_STR)
 
 # Create database tables
 import sys as _sys
