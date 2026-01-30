@@ -96,6 +96,7 @@ class Order(Base):
     __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), index=True) 
+    group_id = Column(String, index=True, nullable=True)
     driver_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True) 
     store_id = Column(Integer, ForeignKey("stores.id"), nullable=False, index=True) 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

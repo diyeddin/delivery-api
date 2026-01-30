@@ -10,6 +10,7 @@ from app.services.order_service import AsyncOrderService
 from app.utils.dependencies import require_scope
 from app.utils.exceptions import NotFoundError, BadRequestError, PermissionDeniedError, InvalidOrderStatusError
 from app.core.logging import get_logger, log_business_event
+from sqlalchemy.orm import selectinload
 
 # --- Expo SDK Imports ---
 from exponent_server_sdk import PushClient, PushMessage
@@ -156,10 +157,23 @@ async def get_available_orders(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:read"))
 ):
-    query = select(models.Order).where(models.Order.status == "confirmed").order_by(models.Order.created_at.desc())
+    # Driver sees orders that are "confirmed" (ready for pickup)
+    # We must EAGER LOAD everything for the schema to work
+    query = (
+        select(models.Order)
+        .options(
+            # Load Items + Products inside them
+            selectinload(models.Order.items).selectinload(models.OrderItem.product),
+            # Load Store details (name, address, image)
+            selectinload(models.Order.store)
+        )
+        .where(models.Order.status == "confirmed")
+        .order_by(models.Order.created_at.desc())
+    )
+    
     result = await db.execute(query)
     orders = result.unique().scalars().all()
-    for o in orders: await db.refresh(o, attribute_names=["items"])
+    
     return orders
 
 @router.get("/store/all", response_model=List[order_schema.OrderOut])
@@ -170,15 +184,30 @@ async def get_store_orders(
     if current_user.role != models.UserRole.store_owner:
         raise HTTPException(status_code=403, detail="Only store owners can access KDS")
     
+    # 1. Get the Store owned by this user
     query_store = select(models.Store).where(models.Store.owner_id == current_user.id)
     result_store = await db.execute(query_store)
     store = result_store.scalars().first()
-    if not store: raise HTTPException(status_code=404, detail="You do not have an active store")
+    
+    if not store: 
+        raise HTTPException(status_code=404, detail="You do not have an active store")
 
-    query_orders = select(models.Order).where(models.Order.store_id == store.id).order_by(models.Order.created_at.desc())
+    # 2. Fetch Orders with all relationships loaded (FIX IS HERE)
+    query_orders = (
+        select(models.Order)
+        .options(
+            # Load Items AND their Products
+            selectinload(models.Order.items).selectinload(models.OrderItem.product),
+            # Load Store details (needed for schema even if we know the store)
+            selectinload(models.Order.store)
+        )
+        .where(models.Order.store_id == store.id)
+        .order_by(models.Order.created_at.desc())
+    )
+    
     result_orders = await db.execute(query_orders)
     orders = result_orders.unique().scalars().all()
-    for o in orders: await db.refresh(o, attribute_names=["items"])
+    
     return orders
 
 @router.put("/{order_id}/move-status")
@@ -236,9 +265,20 @@ async def get_assigned_orders(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("orders:read"))
 ):
-    svc = AsyncOrderService(db)
-    orders = await svc.get_all_orders() 
-    return [o for o in orders if o.driver_id == current_user.id]
+    # Optimized: Query DB directly for driver's orders + Load Relations
+    query = (
+        select(models.Order)
+        .options(
+            selectinload(models.Order.items).selectinload(models.OrderItem.product),
+            selectinload(models.Order.store)
+        )
+        .where(models.Order.driver_id == current_user.id)
+        .order_by(models.Order.created_at.desc())
+    )
+    
+    result = await db.execute(query)
+    orders = result.unique().scalars().all()
+    return orders
 
 @router.get("/{order_id}", response_model=order_schema.OrderOut)
 async def get_order(

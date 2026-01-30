@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
+from app.schemas.store import StoreSummary
 
 class OrderItemCreate(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
@@ -23,6 +24,14 @@ class OrderCreate(BaseModel):
             raise ValueError('Duplicate products are not allowed in the same order')
         return v
 
+class ProductSummary(BaseModel):
+    id: int
+    name: str
+    image_url: Optional[str] = None
+    
+    class Config:
+        from_attributes = True  # (Use 'orm_mode = True' if pydantic < v2)
+
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
     
@@ -30,18 +39,21 @@ class OrderItemOut(BaseModel):
     product_id: int
     quantity: int
     price_at_purchase: float
+    product: Optional[ProductSummary] = None
 
 class OrderOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
     
     id: int
     user_id: int
+    group_id: Optional[str] = None
     store_id: int 
     driver_id: Optional[int] = None
     status: str
     total_price: float = Field(..., ge=0, description="Total price must be non-negative")
     created_at: datetime
     assigned_at: Optional[datetime] = None 
+    store: Optional['StoreSummary'] = None
     
     # NEW: Expose the address in the response
     delivery_address: Optional[str] = None

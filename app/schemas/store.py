@@ -53,3 +53,10 @@ class StoreOut(StoreBase):
     owner_id: Optional[int] = None
     # We default to empty list to handle cases where products aren't eager loaded
     products: List[ProductOut] = []
+
+class StoreSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra='ignore', frozen=True)
+    
+    id: int
+    name: str
+    image_url: Optional[str] = None

@@ -12,6 +12,7 @@ from datetime import datetime, timezone, timedelta
 from itertools import groupby
 from app.core.redis import redis_client
 import json
+import uuid
 
 class AsyncOrderService:
     """Async service class for order-related business logic using AsyncSession."""
@@ -34,28 +35,38 @@ class AsyncOrderService:
     # --- CACHE HELPERS ---
 
     def _serialize_order(self, order: models.Order) -> dict:
-        """
-        Converts ORM object to a JSON-serializable dict.
-        Crucial because we cannot cache SQLAlchemy objects directly.
-        """
         return {
             "id": self._get_attr(order, "id"),
+            "group_id": self._get_attr(order, "group_id"), # <--- 1. NEW
             "user_id": self._get_attr(order, "user_id"),
             "store_id": self._get_attr(order, "store_id"),
+            
+            # --- 2. NEW: Embed Store Details ---
+            "store": {
+                "id": order.store.id,
+                "name": order.store.name,
+                "image_url": order.store.image_url
+            } if getattr(order, "store", None) else None,
+            # -----------------------------------
+
             "driver_id": self._get_attr(order, "driver_id"),
             "status": self._get_attr(order, "status").value,
             "total_price": float(self._get_attr(order, "total_price")),
             "delivery_address": self._get_attr(order, "delivery_address"),
             "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
             "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
-            # Flatten items for caching
             "items": [
                 {
                     "id": self._get_attr(item, "id"),
                     "product_id": self._get_attr(item, "product_id"),
-                    # "product_name": item.product.name if item.product else f"Item {item.product_id}",
                     "quantity": self._get_attr(item, "quantity"),
-                    "price_at_purchase": float(self._get_attr(item, "price_at_purchase"))
+                    "price_at_purchase": float(self._get_attr(item, "price_at_purchase")),
+
+                    "product": {
+                        "id": item.product.id,
+                        "name": item.product.name,
+                        "image_url": item.product.image_url
+                    } if getattr(item, "product", None) else None
                 }
                 for item in order.items
             ] if order.items else []
@@ -86,6 +97,19 @@ class AsyncOrderService:
             await redis_client.delete(*keys)
         except Exception:
             pass
+    
+    async def _refetch_full_order(self, order_id: int) -> models.Order:
+        """Helper to reload an order with all relationships (Store, Products) after an update."""
+        stmt = (
+            select(models.Order)
+            .options(
+                selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                selectinload(models.Order.store)
+            )
+            .where(models.Order.id == order_id)
+        )
+        result = await self.db.execute(stmt)
+        return result.unique().scalar_one()
 
     # --- SERVICE METHODS ---
 
@@ -110,6 +134,9 @@ class AsyncOrderService:
             # Fix: Safely get store_id from dict or object
             p_store_id = self._get_attr(product, "store_id")
             validated_items.append({"schema": item, "product": product, "store_id": p_store_id})
+
+        # Generate ONE Group ID for this entire checkout
+        transaction_group_id = str(uuid.uuid4())
 
         # 2. Group by Store
         validated_items.sort(key=lambda x: x["store_id"])
@@ -140,6 +167,7 @@ class AsyncOrderService:
 
                 db_order = models.Order(
                     user_id=current_user.id,
+                    group_id=transaction_group_id,
                     store_id=store_id,
                     status=models.OrderStatus.pending,
                     total_price=total_price,
@@ -158,7 +186,8 @@ class AsyncOrderService:
             for order in created_orders:
                 # Eager load items to prevent lazy load errors during serialization
                 query = select(models.Order).options(
-                    selectinload(models.Order.items).selectinload(models.OrderItem.product)
+                    selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                    selectinload(models.Order.store)
                 ).where(models.Order.id == order.id)
                 
                 res = await self.db.execute(query)
@@ -206,7 +235,10 @@ class AsyncOrderService:
         # 2. DB Fallback
         stmt = (
             select(models.Order)
-            .options(selectinload(models.Order.items).selectinload(models.OrderItem.product))
+            .options(
+                selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                selectinload(models.Order.store)
+            )
             .where(models.Order.id == order_id)
         )
         result = await self.db.execute(stmt)
@@ -240,20 +272,23 @@ class AsyncOrderService:
     
     async def get_available_orders(self):
         """Fetch orders ready for driver pickup."""
-        # 1. Try Cache (Return Full List immediately)
+        # 1. Try Cache
         try:
             cached = await redis_client.get("orders:available")
             if cached:
-                return json.loads(cached) # Return list of dicts directly
+                return json.loads(cached)
         except Exception:
             pass
         
-        # 2. DB Fallback
+        # 2. DB Fallback - FIX: Add selectinload for Store
         stmt = (
             select(models.Order)
-            .options(selectinload(models.Order.items).selectinload(models.OrderItem.product))
+            .options(
+                selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                selectinload(models.Order.store) # <--- ADD THIS
+            )
             .where(models.Order.status == models.OrderStatus.pending)
-            .limit(50) # Safety limit
+            .limit(50)
         )
         result = await self.db.execute(stmt)
         orders = result.unique().scalars().all()
@@ -263,7 +298,7 @@ class AsyncOrderService:
         await self._cache_set("orders:available", serialized_list, self.AVAILABLE_ORDERS_CACHE_TTL)
         
         return orders
-
+    
     async def get_user_orders(self, current_user: models.User):
         cache_key = f"orders:user:{current_user.id}"
         
@@ -278,7 +313,10 @@ class AsyncOrderService:
         # 2. DB Fallback
         stmt = (
             select(models.Order)
-            .options(selectinload(models.Order.items).selectinload(models.OrderItem.product))
+            .options(
+                selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                selectinload(models.Order.store)
+            )
             .where(models.Order.user_id == current_user.id)
             .order_by(models.Order.created_at.desc())
         )
@@ -292,11 +330,17 @@ class AsyncOrderService:
         return orders
 
     async def get_all_orders(self):
-        # Admin tool - No cache needed generally
-        stmt = select(models.Order).options(selectinload(models.Order.items))
+        # Admin tool - Needs full data for the schema
+        stmt = (
+            select(models.Order)
+            .options(
+                selectinload(models.Order.items).selectinload(models.OrderItem.product), # <--- Fix Product
+                selectinload(models.Order.store) # <--- Fix Store
+            )
+        )
         result = await self.db.execute(stmt)
         return result.unique().scalars().all()
-
+    
     async def update_order_status(self, order_id: int, new_status: str, current_user: models.User):
         # Fetch fresh from DB for locking/consistency
         stmt = select(models.Order).options(selectinload(models.Order.items)).where(models.Order.id == order_id)
@@ -322,21 +366,20 @@ class AsyncOrderService:
 
         order.status = new_status_enum
         await self.db.commit()
-        await self.db.refresh(order)
         
         # Invalidate Cache
         await self._invalidate_order_flow(order_id, order.user_id)
         
-        return order
+        # FIX: Re-fetch the full order (Store + Products) so Schema doesn't crash
+        return await self._refetch_full_order(order_id)
 
     async def accept_order_atomic(self, order_id: int, driver_id: int) -> models.Order:
         """Atomic assignment with Manual Commit to ensure persistence."""
         try:
             # 1. Fetch & Lock (Select For Update)
-            # We do NOT use 'async with' here to avoid the context manager conflict.
             stmt = (
                 select(models.Order)
-                .options(selectinload(models.Order.items)) 
+                .options(selectinload(models.Order.items))
                 .with_for_update()
                 .where(models.Order.id == order_id)
             )
@@ -361,11 +404,11 @@ class AsyncOrderService:
             # 4. FORCE COMMIT (Crucial: Writes to Disk)
             await self.db.commit()
             
-            # 5. Refresh & Invalidate
-            await self.db.refresh(order, attribute_names=["items"])
+            # 5. Invalidate & Return Full Object
             await self._invalidate_order_flow(order_id, order.user_id)
             
-            return order
+            # FIX: Re-fetch the full order (Store + Products) so Schema doesn't crash
+            return await self._refetch_full_order(order_id)
 
         except Exception as e:
             # Rollback on any error to release the lock
