@@ -7,7 +7,9 @@ from typing import List, Optional, Union, Any
 from app.db import models
 from app.schemas.product import ProductCreate, ProductUpdate
 from app.utils.exceptions import NotFoundError, PermissionDeniedError, InsufficientStockError
+from app.utils.image_utils import delete_cloudinary_image
 from app.core.redis import redis_client
+from fastapi import BackgroundTasks
 import json
 
 class AsyncProductService:
@@ -161,9 +163,8 @@ class AsyncProductService:
         
         return products
 
-    async def update_product(self, product_id: int, update_data: ProductUpdate, current_user: models.User) -> models.Product:
-        # 1. Fetch from DB directly (Locking/Safety)
-        # We assume products table does NOT have owner_id, so we must join store to check permission
+    async def update_product(self, product_id: int, update_data: ProductUpdate, current_user: models.User, bg_tasks: BackgroundTasks) -> models.Product:
+        # 1. Fetch from DB directly
         stmt = (
             select(models.Product, models.Store.owner_id)
             .join(models.Store, models.Product.store_id == models.Store.id)
@@ -185,7 +186,15 @@ class AsyncProductService:
         update_dict = update_data.model_dump(exclude_unset=True)
         old_store_id = product.store_id
         
-        # 3. Handle Store Move logic (if changing store_id)
+        # --- NEW: Image Cleanup ---
+        # If the image URL is being updated (and isn't the same as before)
+        if "image_url" in update_dict and update_dict["image_url"] != product.image_url:
+            # If an old image existed, queue it for deletion
+            if product.image_url:
+                bg_tasks.add_task(delete_cloudinary_image, product.image_url)
+        # --------------------------
+
+        # 3. Handle Store Move logic
         if "store_id" in update_dict:
             new_store_res = await self.db.execute(select(models.Store).where(models.Store.id == update_dict["store_id"]))
             new_store = new_store_res.scalar_one_or_none()
@@ -209,7 +218,7 @@ class AsyncProductService:
         
         return product
 
-    async def delete_product(self, product_id: int, current_user: models.User):
+    async def delete_product(self, product_id: int, current_user: models.User, bg_tasks: BackgroundTasks):
         # Join Store to check owner
         stmt = (
             select(models.Product, models.Store.owner_id)
@@ -227,7 +236,12 @@ class AsyncProductService:
         if current_user.role == models.UserRole.store_owner:
             if owner_id != current_user.id:
                 raise PermissionDeniedError("delete", "this product")
-                
+        
+        # --- NEW: Queue Deletion ---
+        if product.image_url:
+            bg_tasks.add_task(delete_cloudinary_image, product.image_url)
+        # ---------------------------
+
         store_id = product.store_id
         await self.db.delete(product)
         await self.db.commit()

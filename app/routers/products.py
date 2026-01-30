@@ -1,5 +1,5 @@
 # app/routers/products.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -108,12 +108,13 @@ async def get_product(product_id: int, db: AsyncSession = Depends(database.get_d
 async def update_product(
     product_id: int,
     payload: ProductUpdate,
+    bg_tasks: BackgroundTasks,
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("products:manage"))
 ):
     svc = AsyncProductService(db)
     try:
-        return await svc.update_product(product_id, payload, current_user)
+        return await svc.update_product(product_id, payload, current_user, bg_tasks)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Product not found")
     except PermissionDeniedError:
@@ -123,12 +124,13 @@ async def update_product(
 @router.delete("/{product_id}")
 async def delete_product(
     product_id: int,
+    bg_tasks: BackgroundTasks,
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("products:manage"))
 ):
     svc = AsyncProductService(db)
     try:
-        await svc.delete_product(product_id, current_user)
+        await svc.delete_product(product_id, current_user, bg_tasks)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Product not found")
     except PermissionDeniedError:

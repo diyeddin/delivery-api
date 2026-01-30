@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 import cloudinary
 import cloudinary.uploader
 from PIL import Image
@@ -6,39 +6,56 @@ import io
 
 router = APIRouter(prefix="/upload", tags=["Uploads"])
 
+# Folder Configuration
+FOLDER_MAP = {
+    "product": "mall_delivery/products",
+    "store": "mall_delivery/stores",     # For logos/banners
+    "avatar": "mall_delivery/avatars",   # For user profiles
+    "misc": "mall_delivery/misc"
+}
+
 @router.post("/", status_code=200)
-async def upload_image(file: UploadFile = File(...)):
+async def upload_image(
+    file: UploadFile = File(...),
+    type: str = Query("product", description="Type of image: product, store, avatar") # <--- NEW PARAMETER
+):
     if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, or WebP images allowed")
 
+    # 1. Determine Target Folder
+    target_folder = FOLDER_MAP.get(type, FOLDER_MAP["misc"])
+
     try:
-        # 1. Open the image using Pillow
-        # We read the file bytes directly
+        # 2. Process Image (Pillow)
         image = Image.open(file.file)
 
-        # 2. (Optional) Convert to RGB if it's PNG/RGBA to avoid errors saving as JPEG
         if image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
 
-        # 3. Resize Logic (Max Width 1080px)
-        # We use 'thumbnail' which preserves aspect ratio
-        max_size = (1080, 1080)
-        image.thumbnail(max_size)
+        # Resize Logic:
+        # Avatars can be smaller, Banners larger. 
+        if type == "avatar":
+             image.thumbnail((500, 500))
+        elif type == "store": 
+             image.thumbnail((1200, 1200)) # Allow larger for banners
+        else:
+             image.thumbnail((1080, 1080)) # Default for products
 
-        # 4. Save the processed image to a memory buffer (Ram)
-        # This acts like a "fake file" so we don't have to save to disk
+        # 3. Save to Buffer
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG", quality=80, optimize=True)
-        buffer.seek(0) # Rewind the buffer to the beginning so Cloudinary can read it
+        buffer.seek(0)
 
-        # 5. Upload the BUFFER to Cloudinary
+        # 4. Upload with Dynamic Folder
         result = cloudinary.uploader.upload(
             buffer, 
-            folder="mall_delivery/products",
-            # public_id=file.filename.split('.')[0] # Optional: Keep original name
+            folder=target_folder, # <--- DYNAMIC FOLDER HERE
         )
         
-        return {"url": result.get("secure_url")}
+        return {
+            "url": result.get("secure_url"),
+            "folder": target_folder
+        }
 
     except Exception as e:
         print(f"Error: {e}")

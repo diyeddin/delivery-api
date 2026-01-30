@@ -8,7 +8,9 @@ from typing import List, Optional, Union, Any
 from app.db import models
 from app.schemas.store import StoreCreate, StoreUpdate
 from app.utils.exceptions import NotFoundError, PermissionDeniedError
+from app.utils.image_utils import delete_cloudinary_image
 from app.core.redis import redis_client
+from fastapi import BackgroundTasks
 import json
 
 class AsyncStoreService:
@@ -178,7 +180,7 @@ class AsyncStoreService:
         
         return stores
 
-    async def update_store(self, store_id: int, update_data: StoreUpdate, current_user: models.User):
+    async def update_store(self, store_id: int, update_data: StoreUpdate, current_user: models.User, bg_tasks: BackgroundTasks):
         # Fetch directly from DB for locking
         stmt = select(models.Store).options(selectinload(models.Store.products)).where(models.Store.id == store_id)
         result = await self.db.execute(stmt)
@@ -191,6 +193,18 @@ class AsyncStoreService:
             if store.owner_id != current_user.id:
                 raise PermissionDeniedError("update", "store")
         
+        # --- NEW: Image Cleanup Logic ---
+        # 1. Check Logo Change
+        if update_data.image_url and update_data.image_url != store.image_url:
+            if store.image_url:
+                bg_tasks.add_task(delete_cloudinary_image, store.image_url)
+
+        # 2. Check Banner Change
+        if update_data.banner_url and update_data.banner_url != store.banner_url:
+            if store.banner_url:
+                bg_tasks.add_task(delete_cloudinary_image, store.banner_url)
+        # --------------------------------
+
         for key, value in update_data.model_dump(exclude_unset=True).items():
             setattr(store, key, value)
         
@@ -200,10 +214,9 @@ class AsyncStoreService:
         # Invalidate Cache
         await self._invalidate_store_cache(store_id=store_id, owner_id=store.owner_id)
         
-        # Return updated object (re-cache happens on next get)
         return store
 
-    async def delete_store(self, store_id: int, current_user: models.User):
+    async def delete_store(self, store_id: int, current_user: models.User, bg_tasks: BackgroundTasks):
         # Fetch first to check ownership
         stmt = select(models.Store).where(models.Store.id == store_id)
         result = await self.db.execute(stmt)
@@ -218,6 +231,13 @@ class AsyncStoreService:
             if store.owner_id != current_user.id:
                 raise PermissionDeniedError("delete", "store")
         
+        # --- NEW: Queue Deletion of Images ---
+        if store.image_url:
+            bg_tasks.add_task(delete_cloudinary_image, store.image_url)
+        if store.banner_url:
+            bg_tasks.add_task(delete_cloudinary_image, store.banner_url)
+        # -------------------------------------
+
         await self.db.delete(store)
         await self.db.commit()
         

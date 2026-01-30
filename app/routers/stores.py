@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from typing import List
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
@@ -51,6 +51,7 @@ async def get_store(store_id: int, db: AsyncSession = Depends(database.get_db)):
 async def update_store(
     store_id: int,
     update: StoreUpdate,
+    bg_tasks: BackgroundTasks,
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("stores:manage"))
 ):
@@ -59,7 +60,7 @@ async def update_store(
         # Check ownership logic should be inside service or here
         # For simplicity, we assume service handles permission check 
         # (e.g., verifying current_user.id == store.owner_id)
-        return await svc.update_store(store_id, update, current_user)
+        return await svc.update_store(store_id, update, current_user, bg_tasks)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Store not found")
 
@@ -67,12 +68,13 @@ async def update_store(
 @router.delete("/{store_id}")
 async def delete_store(
     store_id: int,
+    bg_tasks: BackgroundTasks,
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("stores:manage"))
 ):
     svc = AsyncStoreService(db)
     try:
-        await svc.delete_store(store_id, current_user)
+        await svc.delete_store(store_id, current_user, bg_tasks)
     except NotFoundError:
         raise HTTPException(status_code=404, detail="Store not found")
     return {"detail": "Store deleted"}
