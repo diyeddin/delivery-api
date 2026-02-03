@@ -12,9 +12,16 @@ class OrderCreate(BaseModel):
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
     items: List[OrderItemCreate] = Field(..., min_length=1, max_length=20, description="Order must have 1-20 items")
     
-    # NEW: Allow users to specify a delivery address (optional, falls back to profile default)
+    # Existing Field
     delivery_address: Optional[str] = Field(None, min_length=5, max_length=255, description="Delivery address if different from profile")
     
+    # 👇 NEW FIELDS
+    payment_method: str = Field("cash", pattern="^(cash|transfer)$", description="Payment method: 'cash' or 'transfer'")
+    note: Optional[str] = Field(None, max_length=500, description="Delivery instructions")
+    
+    # Store ID is usually inferred from products, but allowed if passed explicitly
+    store_id: Optional[int] = None
+
     @field_validator('items')
     @classmethod
     def validate_unique_products(cls, v):
@@ -28,13 +35,11 @@ class ProductSummary(BaseModel):
     id: int
     name: str
     image_url: Optional[str] = None
-    
     class Config:
-        from_attributes = True  # (Use 'orm_mode = True' if pydantic < v2)
+        from_attributes = True
 
 class OrderItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra='forbid', frozen=True, str_strip_whitespace=True)
-    
     id: int
     product_id: int
     quantity: int
@@ -55,8 +60,11 @@ class OrderOut(BaseModel):
     assigned_at: Optional[datetime] = None 
     store: Optional['StoreSummary'] = None
     
-    # NEW: Expose the address in the response
     delivery_address: Optional[str] = None
+    
+    # 👇 NEW FIELDS IN RESPONSE
+    payment_method: str = "cash"
+    note: Optional[str] = None
     
     items: List[OrderItemOut] = Field(..., min_length=1, description="Order must have at least one item")
 

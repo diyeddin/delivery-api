@@ -37,31 +37,34 @@ class AsyncOrderService:
     def _serialize_order(self, order: models.Order) -> dict:
         return {
             "id": self._get_attr(order, "id"),
-            "group_id": self._get_attr(order, "group_id"), # <--- 1. NEW
+            "group_id": self._get_attr(order, "group_id"),
             "user_id": self._get_attr(order, "user_id"),
             "store_id": self._get_attr(order, "store_id"),
+            "driver_id": self._get_attr(order, "driver_id"),
+            "status": self._get_attr(order, "status").value,
+            "total_price": float(self._get_attr(order, "total_price")),
+            "delivery_address": self._get_attr(order, "delivery_address"),
             
-            # --- 2. NEW: Embed Store Details ---
+            # 👇 NEW: Serialize new fields
+            "payment_method": self._get_attr(order, "payment_method").value if hasattr(self._get_attr(order, "payment_method"), "value") else self._get_attr(order, "payment_method"),
+            "note": self._get_attr(order, "note"),
+            
+            "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
+            "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
+            
+            # Embed Store Details
             "store": {
                 "id": order.store.id,
                 "name": order.store.name,
                 "image_url": order.store.image_url
             } if getattr(order, "store", None) else None,
-            # -----------------------------------
 
-            "driver_id": self._get_attr(order, "driver_id"),
-            "status": self._get_attr(order, "status").value,
-            "total_price": float(self._get_attr(order, "total_price")),
-            "delivery_address": self._get_attr(order, "delivery_address"),
-            "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
-            "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
             "items": [
                 {
                     "id": self._get_attr(item, "id"),
                     "product_id": self._get_attr(item, "product_id"),
                     "quantity": self._get_attr(item, "quantity"),
                     "price_at_purchase": float(self._get_attr(item, "price_at_purchase")),
-
                     "product": {
                         "id": item.product.id,
                         "name": item.product.name,
@@ -73,24 +76,15 @@ class AsyncOrderService:
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):
-        """Safe wrapper for Redis SET to prevent crashing if Redis is down."""
+        """Safe wrapper for Redis SET."""
         try:
             await redis_client.setex(key, ttl, json.dumps(data))
         except Exception:
             pass 
 
     async def _invalidate_order_flow(self, order_id: int, user_id: int = None):
-        """
-        Smart Invalidation:
-        When an order changes, we must clear:
-        1. The order itself
-        2. The 'Available Orders' list (it might have been removed/added)
-        3. The specific User's order list
-        4. The Driver's Available Orders list (CRITICAL FIX)
-        """
-        keys = [f"order:{order_id}",
-                "orders:available",
-                "drivers:available_orders"]
+        """Clear relevant cache keys when an order changes."""
+        keys = [f"order:{order_id}", "orders:available", "drivers:available_orders"]
         if user_id:
             keys.append(f"orders:user:{user_id}")
         try:
@@ -99,7 +93,7 @@ class AsyncOrderService:
             pass
     
     async def _refetch_full_order(self, order_id: int) -> models.Order:
-        """Helper to reload an order with all relationships (Store, Products) after an update."""
+        """Reload order with all relationships."""
         stmt = (
             select(models.Order)
             .options(
@@ -121,28 +115,24 @@ class AsyncOrderService:
         from app.services.product_service import AsyncProductService
         product_svc = AsyncProductService(self.db)
 
-        # 1. Validate & Prepare
+        # 1. Validate Items & Stock
         validated_items = []
         for item in order_data.items:
             product = await product_svc.get_product(item.product_id)
             if not await product_svc.check_stock_availability(item.product_id, item.quantity):
-                # Fix: Safely get name/stock from dict or object
                 p_name = self._get_attr(product, "name")
                 p_stock = self._get_attr(product, "stock")
                 raise InsufficientStockError(p_name, item.quantity, p_stock)
             
-            # Fix: Safely get store_id from dict or object
             p_store_id = self._get_attr(product, "store_id")
             validated_items.append({"schema": item, "product": product, "store_id": p_store_id})
 
-        # Generate ONE Group ID for this entire checkout
         transaction_group_id = str(uuid.uuid4())
-
-        # 2. Group by Store
         validated_items.sort(key=lambda x: x["store_id"])
         created_orders = []
 
         try:
+            # 2. Group by Store & Create Orders
             for store_id, group in groupby(validated_items, key=lambda x: x["store_id"]):
                 store_items = list(group)
                 total_price = 0.0
@@ -151,8 +141,6 @@ class AsyncOrderService:
                 for item_data in store_items:
                     product = item_data["product"]
                     qty = item_data["schema"].quantity
-                    
-                    # Fix: Safely get id/price from dict or object
                     p_id = self._get_attr(product, "id")
                     p_price = self._get_attr(product, "price")
                     
@@ -165,6 +153,7 @@ class AsyncOrderService:
                     total_price += p_price * qty
                     await product_svc.reserve_stock(p_id, qty)
 
+                # 👇 NEW: Map payment_method and note from request to DB
                 db_order = models.Order(
                     user_id=current_user.id,
                     group_id=transaction_group_id,
@@ -172,6 +161,8 @@ class AsyncOrderService:
                     status=models.OrderStatus.pending,
                     total_price=total_price,
                     delivery_address=order_data.delivery_address or current_user.address or "Default Address",
+                    payment_method=order_data.payment_method, # <--- NEW
+                    note=order_data.note, # <--- NEW
                     items=db_order_items
                 )
                 self.db.add(db_order)
@@ -180,11 +171,10 @@ class AsyncOrderService:
             await self.db.commit()
             
             # 3. Refresh & Cache
-            await self._invalidate_order_flow(0, current_user.id) # Clear lists
+            await self._invalidate_order_flow(0, current_user.id)
             
             final_orders = []
             for order in created_orders:
-                # Eager load items to prevent lazy load errors during serialization
                 query = select(models.Order).options(
                     selectinload(models.Order.items).selectinload(models.OrderItem.product),
                     selectinload(models.Order.store)
@@ -194,7 +184,6 @@ class AsyncOrderService:
                 fresh_order = res.scalar_one()
                 final_orders.append(fresh_order)
                 
-                # Cache the individual order immediately
                 await self._cache_set(
                     f"order:{fresh_order.id}", 
                     self._serialize_order(fresh_order), 
@@ -208,29 +197,21 @@ class AsyncOrderService:
             raise e
 
     async def get_order(self, order_id: int, current_user: models.User = None) -> Union[models.Order, dict]:
-        """
-        Get single order.
-        Strategy: Cache contains raw Dict. We return Dict if cached, ORM Object if DB hit.
-        FastAPI/Pydantic handles both seamlessly.
-        """
-        
-        
         # 1. Try Cache
         try:
             cached = await redis_client.get(f"order:{order_id}")
             if cached:
                 order_dict = json.loads(cached)
-                # Apply Security Checks on Cached Data
                 if current_user:
                     is_owner = order_dict["user_id"] == current_user.id
                     is_driver = current_user.role == models.UserRole.driver
                     if not is_owner and not is_driver and current_user.role != models.UserRole.admin:
                          raise NotFoundError("Order", order_id)
-                return order_dict # Return Dict (Pydantic will validate)
+                return order_dict
         except NotFoundError:
             raise
         except Exception:
-            pass # Redis fail -> Fallback to DB
+            pass
 
         # 2. DB Fallback
         stmt = (
@@ -247,32 +228,22 @@ class AsyncOrderService:
         if not order:
             raise NotFoundError("Order", order_id)
 
-        # 3. Security Checks (DB Data)
+        # 3. Security Checks
         if current_user:
             if current_user.role == models.UserRole.customer:
                 if order.user_id != current_user.id:
                     raise NotFoundError("Order", order_id)
-            
             elif current_user.role == models.UserRole.driver:
-                # FIX: Added missing security check for drivers
                 is_assigned = order.driver_id == current_user.id
                 is_available = order.status in [models.OrderStatus.pending, models.OrderStatus.confirmed]
-                
                 if not is_assigned and not is_available:
                     raise NotFoundError("Order", order_id)
 
         # 4. Write to Cache
-        await self._cache_set(
-            f"order:{order.id}", 
-            self._serialize_order(order), 
-            self.ORDER_CACHE_TTL
-        )
-        
+        await self._cache_set(f"order:{order.id}", self._serialize_order(order), self.ORDER_CACHE_TTL)
         return order
     
     async def get_available_orders(self):
-        """Fetch orders ready for driver pickup."""
-        # 1. Try Cache
         try:
             cached = await redis_client.get("orders:available")
             if cached:
@@ -280,12 +251,11 @@ class AsyncOrderService:
         except Exception:
             pass
         
-        # 2. DB Fallback - FIX: Add selectinload for Store
         stmt = (
             select(models.Order)
             .options(
                 selectinload(models.Order.items).selectinload(models.OrderItem.product),
-                selectinload(models.Order.store) # <--- ADD THIS
+                selectinload(models.Order.store)
             )
             .where(models.Order.status == models.OrderStatus.pending)
             .limit(50)
@@ -293,16 +263,12 @@ class AsyncOrderService:
         result = await self.db.execute(stmt)
         orders = result.unique().scalars().all()
         
-        # 3. Serialize & Cache
         serialized_list = [self._serialize_order(o) for o in orders]
         await self._cache_set("orders:available", serialized_list, self.AVAILABLE_ORDERS_CACHE_TTL)
-        
         return orders
     
     async def get_user_orders(self, current_user: models.User):
         cache_key = f"orders:user:{current_user.id}"
-        
-        # 1. Try Cache
         try:
             cached = await redis_client.get(cache_key)
             if cached:
@@ -310,7 +276,6 @@ class AsyncOrderService:
         except Exception:
             pass
         
-        # 2. DB Fallback
         stmt = (
             select(models.Order)
             .options(
@@ -323,26 +288,22 @@ class AsyncOrderService:
         result = await self.db.execute(stmt)
         orders = result.unique().scalars().all()
         
-        # 3. Serialize & Cache
         serialized_list = [self._serialize_order(o) for o in orders]
         await self._cache_set(cache_key, serialized_list, self.USER_ORDERS_CACHE_TTL)
-        
         return orders
 
     async def get_all_orders(self):
-        # Admin tool - Needs full data for the schema
         stmt = (
             select(models.Order)
             .options(
-                selectinload(models.Order.items).selectinload(models.OrderItem.product), # <--- Fix Product
-                selectinload(models.Order.store) # <--- Fix Store
+                selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                selectinload(models.Order.store)
             )
         )
         result = await self.db.execute(stmt)
         return result.unique().scalars().all()
     
     async def update_order_status(self, order_id: int, new_status: str, current_user: models.User):
-        # Fetch fresh from DB for locking/consistency
         stmt = select(models.Order).options(selectinload(models.Order.items)).where(models.Order.id == order_id)
         result = await self.db.execute(stmt)
         order = result.unique().scalar_one_or_none()
@@ -355,7 +316,6 @@ class AsyncOrderService:
         except ValueError:
             raise BadRequestError(f"Invalid status: {new_status}")
 
-        # Basic State Machine Validation
         if new_status_enum == models.OrderStatus.cancelled:
              from app.services.product_service import AsyncProductService
              product_svc = AsyncProductService(self.db)
@@ -367,16 +327,11 @@ class AsyncOrderService:
         order.status = new_status_enum
         await self.db.commit()
         
-        # Invalidate Cache
         await self._invalidate_order_flow(order_id, order.user_id)
-        
-        # FIX: Re-fetch the full order (Store + Products) so Schema doesn't crash
         return await self._refetch_full_order(order_id)
 
     async def accept_order_atomic(self, order_id: int, driver_id: int) -> models.Order:
-        """Atomic assignment with Manual Commit to ensure persistence."""
         try:
-            # 1. Fetch & Lock (Select For Update)
             stmt = (
                 select(models.Order)
                 .options(selectinload(models.Order.items))
@@ -389,28 +344,20 @@ class AsyncOrderService:
             if not order: 
                 raise NotFoundError("Order", order_id)
             
-            # 2. Validate
             if order.status not in [models.OrderStatus.pending, models.OrderStatus.confirmed]:
                  raise BadRequestError(f"Cannot accept order in status {order.status}")
             
             if order.driver_id and order.driver_id != driver_id:
                  raise BadRequestError("Order already assigned to another driver")
 
-            # 3. Update
             order.driver_id = driver_id
             order.status = models.OrderStatus.assigned
             order.assigned_at = datetime.now(timezone.utc)
             
-            # 4. FORCE COMMIT (Crucial: Writes to Disk)
             await self.db.commit()
-            
-            # 5. Invalidate & Return Full Object
             await self._invalidate_order_flow(order_id, order.user_id)
-            
-            # FIX: Re-fetch the full order (Store + Products) so Schema doesn't crash
             return await self._refetch_full_order(order_id)
 
         except Exception as e:
-            # Rollback on any error to release the lock
             await self.db.rollback()
             raise e

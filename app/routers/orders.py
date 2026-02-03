@@ -336,3 +336,55 @@ async def accept_order(
         return order
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.put("/{order_id}/cancel", response_model=order_schema.OrderOut)
+async def cancel_order(
+    order_id: int,
+    bg_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(database.get_db),
+    current_user: models.User = Depends(require_scope("orders:read_own"))
+):
+    # 1. Initialize Service
+    svc = AsyncOrderService(db)
+    
+    # 2. Fetch Order (We still need to check permissions/status logic manually first)
+    # We query DB directly here to avoid getting stale cache during the check
+    query = select(models.Order).where(models.Order.id == order_id)
+    result = await db.execute(query)
+    order = result.scalars().first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # 3. Security: Ensure user owns the order
+    if order.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to cancel this order")
+
+    # 4. Rule: Cannot cancel if driver is already assigned
+    if order.status not in [models.OrderStatus.pending, models.OrderStatus.confirmed]:
+        raise HTTPException(
+            status_code=400, 
+            detail="Cannot cancel order. Driver has already been assigned."
+        )
+
+    # 5. EXECUTE UPDATE VIA SERVICE (Crucial Step!)
+    # This method handles:
+    #   a. Setting status to 'cancelled'
+    #   b. Releasing stock
+    #   c. Unassigning driver (if any)
+    #   d. INVALIDATING REDIS CACHE <--- This fixes your bug
+    try:
+        updated_order = await svc.update_order_status(order_id, "cancelled", current_user)
+    except Exception as e:
+        logger.error(f"Cancel failed: {e}")
+        raise HTTPException(status_code=400, detail="Failed to cancel order")
+
+    # 6. Notify & Broadcast
+    await manager.broadcast(str(order_id), {
+        "type": "status_update", 
+        "status": "cancelled"
+    })
+    
+    await notify_customer(db, order_id, "Your order has been cancelled.", bg_tasks)
+
+    return updated_order

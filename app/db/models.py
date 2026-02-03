@@ -13,6 +13,10 @@ class OrderStatus(str, enum.Enum):
     delivered = "delivered"
     cancelled = "cancelled"
 
+class PaymentMethod(str, enum.Enum):
+    cash = "cash"
+    transfer = "transfer"
+
 class UserRole(enum.Enum):
     customer = "customer"
     driver = "driver"
@@ -106,6 +110,8 @@ class Order(Base):
     total_price = Column(Float, default=0.0)
 
     delivery_address = Column(String, nullable=True)
+    payment_method = Column(Enum(PaymentMethod), default=PaymentMethod.cash, nullable=False)
+    note = Column(String, nullable=True) # For delivery instructions
     # delivery_instructions = Column(String, nullable=True) # fix later
     
     user = relationship("User", foreign_keys=[user_id], back_populates="orders")
