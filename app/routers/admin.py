@@ -47,13 +47,13 @@ async def cancel_order(
     
     svc = AsyncOrderService(db)
     try:
-        await svc.update_order_status(order_id, "cancelled", current_user)
+        await svc.update_order_status(order_id, "canceled", current_user)
     except APIException:
         # Let APIException bubble up with its proper status/detail
         raise
     except Exception:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot cancel order")
-    return {"message": "Order cancelled successfully", "order_id": order_id}
+    return {"message": "Order canceled successfully", "order_id": order_id}
 
 
 @router.patch("/orders/{order_id}/confirm")

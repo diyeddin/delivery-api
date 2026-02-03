@@ -369,12 +369,12 @@ async def cancel_order(
 
     # 5. EXECUTE UPDATE VIA SERVICE (Crucial Step!)
     # This method handles:
-    #   a. Setting status to 'cancelled'
+    #   a. Setting status to 'canceled'
     #   b. Releasing stock
     #   c. Unassigning driver (if any)
     #   d. INVALIDATING REDIS CACHE <--- This fixes your bug
     try:
-        updated_order = await svc.update_order_status(order_id, "cancelled", current_user)
+        updated_order = await svc.update_order_status(order_id, "canceled", current_user)
     except Exception as e:
         logger.error(f"Cancel failed: {e}")
         raise HTTPException(status_code=400, detail="Failed to cancel order")
@@ -382,9 +382,9 @@ async def cancel_order(
     # 6. Notify & Broadcast
     await manager.broadcast(str(order_id), {
         "type": "status_update", 
-        "status": "cancelled"
+        "status": "canceled"
     })
     
-    await notify_customer(db, order_id, "Your order has been cancelled.", bg_tasks)
+    await notify_customer(db, order_id, "Your order has been canceled.", bg_tasks)
 
     return updated_order

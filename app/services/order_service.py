@@ -316,7 +316,7 @@ class AsyncOrderService:
         except ValueError:
             raise BadRequestError(f"Invalid status: {new_status}")
 
-        if new_status_enum == models.OrderStatus.cancelled:
+        if new_status_enum == models.OrderStatus.canceled:
              from app.services.product_service import AsyncProductService
              product_svc = AsyncProductService(self.db)
              for item in order.items:

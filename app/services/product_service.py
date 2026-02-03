@@ -299,7 +299,7 @@ class AsyncProductService:
         return product
     
     async def release_stock(self, product_id: int, quantity: int):
-        """Re-add stock (e.g. cancelled order)."""
+        """Re-add stock (e.g. canceled order)."""
         stmt = (
             update(models.Product)
             .where(models.Product.id == product_id)

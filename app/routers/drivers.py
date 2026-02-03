@@ -175,7 +175,7 @@ async def get_delivery_history(
 ):
     """
     Get delivery history for the current driver.
-    Optionally filter by status (e.g., 'delivered', 'cancelled').
+    Optionally filter by status (e.g., 'delivered', 'canceled').
     """
     driver_service = AsyncDriverService(db)
     
