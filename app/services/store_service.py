@@ -117,7 +117,7 @@ class AsyncStoreService:
         await self._cache_set(f"store:{store.id}", self._serialize_store(store), self.STORE_CACHE_TTL)
         return store
 
-    async def get_all_stores(self, q: Optional[str] = None, limit: int = 20, offset: int = 0):
+    async def get_all_stores(self, q: Optional[str] = None, category: Optional[str] = None, limit: int = 20, offset: int = 0):
         stmt = select(models.Store)
         if q:
             search_text = f"%{q}%"
@@ -127,6 +127,10 @@ class AsyncStoreService:
                     models.Store.description.ilike(search_text)
                 )
             )
+            
+        if category:
+            stmt = stmt.where(models.Store.category.ilike(category))
+
         stmt = stmt.limit(limit).offset(offset)
         result = await self.db.execute(stmt)
         return result.unique().scalars().all()

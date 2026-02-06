@@ -36,13 +36,14 @@ async def get_my_stores(
 @router.get("/", response_model=List[StoreListOut])
 async def list_stores(
     q: Optional[str] = None,
+    category: Optional[str] = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(database.get_db)
 ):
     """Public list of all stores with Search & Pagination."""
     svc = AsyncStoreService(db)
-    return await svc.get_all_stores(q, limit, offset)
+    return await svc.get_all_stores(q, category, limit, offset)
 
 
 @router.get("/{store_id}", response_model=StoreOut)

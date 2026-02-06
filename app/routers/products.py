@@ -14,6 +14,7 @@ router = APIRouter(prefix="/products", tags=["products"])
 @router.get("/", response_model=List[ProductOut])
 async def get_products(
     q: Optional[str] = None,
+    category: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
     in_stock: bool = False,
@@ -37,22 +38,27 @@ async def get_products(
                 models.Product.description.ilike(search_text)
             )
         )
+
+    # 2. Category Filter
+    if category:
+        # Case-insensitive match (e.g. "food" matches "Food")
+        query = query.where(models.Product.category.ilike(category))
     
-    # 2. Filter by Store
+    # 3. Filter by Store
     if store_id:
         query = query.where(models.Product.store_id == store_id)
 
-    # 3. Price Filters
+    # 4. Price Filters
     if min_price is not None:
         query = query.where(models.Product.price >= min_price)
     if max_price is not None:
         query = query.where(models.Product.price <= max_price)
         
-    # 4. Stock Filter
+    # 5. Stock Filter
     if in_stock:
         query = query.where(models.Product.stock > 0)
 
-    # 5. 👇 Apply Pagination (The Optimization)
+    # 6. 👇 Apply Pagination (The Optimization)
     query = query.limit(limit).offset(offset)
 
     result = await db.execute(query)
