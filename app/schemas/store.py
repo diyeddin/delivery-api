@@ -54,6 +54,10 @@ class StoreOut(StoreBase):
     # We default to empty list to handle cases where products aren't eager loaded
     products: List[ProductOut] = []
 
+class StoreListOut(StoreBase):
+    id: int
+    owner_id: int
+
 class StoreSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra='ignore', frozen=True)
     
