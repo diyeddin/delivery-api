@@ -1,5 +1,5 @@
 # app/routers/products.py
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
@@ -16,16 +16,19 @@ async def get_products(
     q: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
-    in_stock: bool = False, # Changed default to False so owners see out-of-stock items by default in management
-    store_id: Optional[int] = None, # Added store_id filter
+    in_stock: bool = False,
+    store_id: Optional[int] = None,
+    # 👇 NEW: Pagination Params
+    limit: int = Query(20, ge=1, le=100), # Default 20, max 100 items per page (6 for testing)
+    offset: int = Query(0, ge=0),         # Default skip 0
     db: AsyncSession = Depends(database.get_db)
 ):
     """
-    Global Product Search & Filter.
+    Global Product Search & Filter with Pagination.
     """
     query = select(models.Product) #.where(models.Product.is_active == True)
     
-    # 1. Search Logic (Name or Description)
+    # 1. Search Logic
     if q:
         search_text = f"%{q}%"
         query = query.where(
@@ -45,9 +48,12 @@ async def get_products(
     if max_price is not None:
         query = query.where(models.Product.price <= max_price)
         
-    # 4. Stock Filter (Optional)
+    # 4. Stock Filter
     if in_stock:
         query = query.where(models.Product.stock > 0)
+
+    # 5. 👇 Apply Pagination (The Optimization)
+    query = query.limit(limit).offset(offset)
 
     result = await db.execute(query)
     return result.scalars().all()
@@ -56,16 +62,18 @@ async def get_products(
 @router.get("/store/{store_id}", response_model=List[ProductOut])
 async def get_store_products(
     store_id: int, 
+    limit: int = Query(50, ge=1, le=100), # Higher default for store view
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(database.get_db)
 ):
     """
-    Helper endpoint to get all products for a specific store.
-    Useful for the Store Manager UI.
+    Get products for a specific store (Paginated).
     """
     query = select(models.Product).where(
-        models.Product.store_id == store_id,
-        # models.Product.is_active == True
+        models.Product.store_id == store_id
     )
+    query = query.limit(limit).offset(offset)
+    
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -87,12 +95,15 @@ async def create_product(
 
 @router.get("/my-products", response_model=List[ProductOut])
 async def get_my_products(
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(require_scope("products:manage"))
 ):
-    """Get products from stores owned by the current store owner."""
+    """Get products from stores owned by the current store owner (Paginated)."""
     svc = AsyncProductService(db)
-    return await svc.get_user_products(current_user)
+    # Passed pagination args to service
+    return await svc.get_user_products(current_user, limit, offset)
 
 
 @router.get("/{product_id}", response_model=ProductOut)

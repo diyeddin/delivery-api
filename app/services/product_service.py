@@ -116,52 +116,22 @@ class AsyncProductService:
         
         return product
 
-    async def get_all_products(self):
-        """Get all products."""
-        # 1. Try Cache (Full List)
-        try:
-            cached = await redis_client.get("products:all")
-            if cached:
-                return json.loads(cached)
-        except Exception:
-            pass
+    # 👇 UPDATED: Added limit/offset support
+    async def get_user_products(self, current_user: models.User, limit: int = 50, offset: int = 0):
+        """Get all products for a store owner with pagination."""
         
-        # 2. DB Fallback
-        result = await self.db.execute(select(models.Product))
-        products = result.unique().scalars().all()
+        # NOTE: Caching paginated results is complex. For now, we hit the DB directly.
+        # This ensures the dashboard always shows live stock levels.
         
-        # 3. Serialize & Cache
-        serialized_list = [self._serialize_product(p) for p in products]
-        await self._cache_set("products:all", serialized_list, self.ALL_PRODUCTS_CACHE_TTL)
-        
-        return products
-
-    async def get_user_products(self, current_user: models.User):
-        """Get all products for a store owner."""
-        cache_key = f"products:user:{current_user.id}"
-        
-        # 1. Try Cache
-        try:
-            cached = await redis_client.get(cache_key)
-            if cached:
-                return json.loads(cached)
-        except Exception:
-            pass
-        
-        # 2. DB Fallback
         stmt = (
             select(models.Product)
             .join(models.Store)
             .where(models.Store.owner_id == current_user.id)
+            .limit(limit)  # <--- LIMIT
+            .offset(offset) # <--- OFFSET
         )
         result = await self.db.execute(stmt)
-        products = result.unique().scalars().all()
-        
-        # 3. Serialize & Cache
-        serialized_list = [self._serialize_product(p) for p in products]
-        await self._cache_set(cache_key, serialized_list, self.USER_PRODUCTS_CACHE_TTL)
-        
-        return products
+        return result.unique().scalars().all()
 
     async def update_product(self, product_id: int, update_data: ProductUpdate, current_user: models.User, bg_tasks: BackgroundTasks) -> models.Product:
         # 1. Fetch from DB directly
