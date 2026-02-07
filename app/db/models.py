@@ -76,11 +76,32 @@ class Store(Base):
     longitude = Column(Float, nullable=True)
     is_active = Column(Boolean, default=True)
 
+    rating = Column(Float, default=0.0, index=True) # The average (e.g., 4.8)
+    review_count = Column(Integer, default=0)       # How many votes (e.g., 150)
+
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     orders = relationship("Order", back_populates="store")
     owner = relationship("User", back_populates="stores")
     products = relationship("Product", back_populates="store", cascade="all, delete-orphan")
+    reviews = relationship("Review", back_populates="store")
+
+class Review(Base):
+    __tablename__ = "reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    rating = Column(Integer) # 1 to 5
+    comment = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Links
+    user_id = Column(Integer, ForeignKey("users.id"))
+    store_id = Column(Integer, ForeignKey("stores.id"))
+    order_id = Column(Integer, ForeignKey("orders.id"), unique=True) # One review per order
+
+    user = relationship("User")
+    store = relationship("Store", back_populates="reviews")
+    order = relationship("Order")
 
 class Product(Base):
     __tablename__ = "products"

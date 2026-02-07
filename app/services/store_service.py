@@ -1,9 +1,12 @@
 # app/services/store_service.py
+from datetime import datetime
+from http.client import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import func, select, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional, Union, Any
 from app.db import models
+from app.schemas.review import ReviewCreate
 from app.schemas.store import StoreCreate, StoreUpdate
 from app.utils.exceptions import NotFoundError, PermissionDeniedError
 from app.utils.image_utils import delete_cloudinary_image
@@ -55,6 +58,8 @@ class AsyncStoreService:
             "image_url": self._get_attr(store, "image_url"),
             "banner_url": self._get_attr(store, "banner_url"),
             "owner_id": self._get_attr(store, "owner_id"),
+            "rating": float(self._get_attr(store, "rating") or 0.0),
+            "review_count": int(self._get_attr(store, "review_count") or 0),
             "products": serialized_products
         }
 
@@ -117,8 +122,18 @@ class AsyncStoreService:
         await self._cache_set(f"store:{store.id}", self._serialize_store(store), self.STORE_CACHE_TTL)
         return store
 
-    async def get_all_stores(self, q: Optional[str] = None, category: Optional[str] = None, limit: int = 20, offset: int = 0):
+    async def get_all_stores(
+        self, 
+        q: Optional[str] = None, 
+        category: Optional[str] = None, 
+        sort_by: str = "newest", # 👈 New Param
+        limit: int = 20, 
+        offset: int = 0
+    ):
+        # 1. Base Query
         stmt = select(models.Store)
+        
+        # 2. Filtering
         if q:
             search_text = f"%{q}%"
             stmt = stmt.where(
@@ -128,12 +143,33 @@ class AsyncStoreService:
                 )
             )
             
-        if category:
+        if category and category != "All":
             stmt = stmt.where(models.Store.category.ilike(category))
 
+        # 3. 👇 Get Total Count (For Pagination Badge)
+        # We do this BEFORE limits/offsets to get the true total
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = await self.db.scalar(count_stmt)
+
+        # 4. 👇 Sorting Logic
+        if sort_by == 'rating':
+            # Assumes you have a rating column. If not, remove this block.
+            stmt = stmt.order_by(models.Store.rating.desc())
+        elif sort_by == 'name':
+            stmt = stmt.order_by(models.Store.name.asc())
+        else:
+            # Default: Newest (ID descending)
+            stmt = stmt.order_by(models.Store.id.desc())
+
+        # 5. Pagination
         stmt = stmt.limit(limit).offset(offset)
+        
+        # 6. Execute
         result = await self.db.execute(stmt)
-        return result.unique().scalars().all()
+        data = result.unique().scalars().all()
+
+        # 7. Return Object
+        return {"data": data, "total": total or 0}
 
     async def get_stores_by_owner(self, owner_id: int, limit: int = 20, offset: int = 0):
         stmt = select(models.Store).where(models.Store.owner_id == owner_id)
@@ -223,3 +259,71 @@ class AsyncStoreService:
         await self._cache_set(cache_key, products_data, self.STORE_CACHE_TTL)
         
         return products
+    
+    
+    async def create_review(
+        self, 
+        store_id: int, 
+        order_id: int, 
+        payload: ReviewCreate, 
+        current_user: models.User
+    ):
+        """
+        Creates a review, updates store stats, and invalidates cache.
+        """
+        # A. Fetch Order
+        stmt = select(models.Order).where(models.Order.id == order_id)
+        result = await self.db.execute(stmt)
+        order = result.unique().scalar_one_or_none()
+
+        if not order:
+            raise NotFoundError("Order", order_id)
+
+        # B. Verify Ownership
+        if order.user_id != current_user.id:
+            raise PermissionDeniedError("review", "order")
+
+        # C. Verify Store Match
+        if order.store_id != store_id:
+            raise HTTPException(status_code=400, detail="Order does not belong to this store")
+
+        # D. Check for Duplicates
+        existing_review = await self.db.scalar(
+            select(models.Review).where(models.Review.order_id == order_id)
+        )
+        if existing_review:
+            raise HTTPException(status_code=400, detail="You have already reviewed this order")
+
+        # E. Create Review
+        new_review = models.Review(
+            user_id=current_user.id,
+            store_id=store_id,
+            order_id=order_id,
+            rating=payload.rating,
+            comment=payload.comment,
+            created_at=datetime.utcnow()
+        )
+        self.db.add(new_review)
+        await self.db.commit() 
+        # No refresh yet, we want to update the store first
+
+        # F. Recalculate Store Stats
+        stmt = select(
+            func.avg(models.Review.rating), 
+            func.count(models.Review.id)
+        ).where(models.Review.store_id == store_id)
+        
+        result = await self.db.execute(stmt)
+        avg_rating, review_count = result.one()
+        
+        # G. Update Store
+        store = await self.db.get(models.Store, store_id)
+        if store:
+            store.rating = float(avg_rating or 0)
+            store.review_count = review_count
+            await self.db.commit()
+            
+            # H. 🪄 MAGIC: Clear the cache so the user sees the new rating immediately!
+            await self._invalidate_store_cache(store_id=store.id)
+
+        return new_review

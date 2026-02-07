@@ -1,9 +1,7 @@
 from pydantic import BaseModel, field_validator, ConfigDict, Field
-from typing import List, Optional, ForwardRef
+from typing import List, Optional
 
-# Avoid circular imports by using a string forward reference if needed, 
-# or import inside the class if strictly necessary. 
-# For now, we assume ProductOut is safe, but we define the list default carefully.
+# Avoid circular imports
 from app.schemas.product import ProductOut
 
 class StoreBase(BaseModel):
@@ -14,7 +12,6 @@ class StoreBase(BaseModel):
     image_url: Optional[str] = None
     banner_url: Optional[str] = None
     
-    # Validation: Coordinates are optional but must be valid if provided
     latitude: Optional[float] = Field(None, ge=-90, le=90)
     longitude: Optional[float] = Field(None, ge=-180, le=180)
     
@@ -26,7 +23,6 @@ class StoreBase(BaseModel):
         return v
 
 class StoreCreate(StoreBase):
-    # owner_id will be set automatically from the current user
     model_config = ConfigDict(extra='forbid', frozen=True, str_strip_whitespace=True)
 
 class StoreUpdate(BaseModel):
@@ -46,17 +42,25 @@ class StoreUpdate(BaseModel):
             raise ValueError('Store name cannot be empty')
         return v
 
+# 👇 UPDATED: Used for the Main List (Store Grid)
+class StoreListOut(StoreBase):
+    id: int
+    owner_id: int
+    # 👇 NEW FIELDS
+    rating: Optional[float] = 0.0
+    review_count: Optional[int] = 0
+
+# 👇 UPDATED: Used for Details Screen
 class StoreOut(StoreBase):
     model_config = ConfigDict(from_attributes=True, extra='ignore', frozen=True)
     
     id: int
     owner_id: Optional[int] = None
-    # We default to empty list to handle cases where products aren't eager loaded
+    # 👇 NEW FIELDS
+    rating: Optional[float] = 0.0
+    review_count: Optional[int] = 0
+    
     products: List[ProductOut] = []
-
-class StoreListOut(StoreBase):
-    id: int
-    owner_id: int
 
 class StoreSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra='ignore', frozen=True)
@@ -64,3 +68,5 @@ class StoreSummary(BaseModel):
     id: int
     name: str
     image_url: Optional[str] = None
+    # Optional: Add here if you want ratings in the "Active Order" widget
+    rating: Optional[float] = 0.0
