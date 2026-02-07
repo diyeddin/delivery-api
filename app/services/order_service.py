@@ -48,6 +48,7 @@ class AsyncOrderService:
             # 👇 NEW: Serialize new fields
             "payment_method": self._get_attr(order, "payment_method").value if hasattr(self._get_attr(order, "payment_method"), "value") else self._get_attr(order, "payment_method"),
             "note": self._get_attr(order, "note"),
+            "is_reviewed": getattr(order, "is_reviewed", False),
             
             "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
             "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
@@ -202,11 +203,17 @@ class AsyncOrderService:
             cached = await redis_client.get(f"order:{order_id}")
             if cached:
                 order_dict = json.loads(cached)
+                # ... (Keep your existing security checks) ...
                 if current_user:
                     is_owner = order_dict["user_id"] == current_user.id
-                    is_driver = current_user.role == models.UserRole.driver
-                    if not is_owner and not is_driver and current_user.role != models.UserRole.admin:
+                    is_driver = getattr(current_user, "role", None) == models.UserRole.driver
+                    if not is_owner and not is_driver and getattr(current_user, "role", None) != models.UserRole.admin:
                          raise NotFoundError("Order", order_id)
+                
+                # Ensure is_reviewed exists in cached dict (fallback for old cache keys)
+                if "is_reviewed" not in order_dict:
+                    order_dict["is_reviewed"] = False 
+                    
                 return order_dict
         except NotFoundError:
             raise
@@ -228,7 +235,7 @@ class AsyncOrderService:
         if not order:
             raise NotFoundError("Order", order_id)
 
-        # 3. Security Checks
+        # 3. Security Checks (Keep your existing logic)
         if current_user:
             if current_user.role == models.UserRole.customer:
                 if order.user_id != current_user.id:
@@ -239,8 +246,17 @@ class AsyncOrderService:
                 if not is_assigned and not is_available:
                     raise NotFoundError("Order", order_id)
 
-        # 4. Write to Cache
+        # 4. 👇 NEW: Check if Reviewed
+        # We check the Review table to see if an entry exists for this order ID
+        review_exists = await self.db.scalar(
+            select(models.Review.id).where(models.Review.order_id == order.id)
+        )
+        # Attach it to the object so Pydantic (and the serializer) can see it
+        order.is_reviewed = bool(review_exists)
+
+        # 5. Write to Cache
         await self._cache_set(f"order:{order.id}", self._serialize_order(order), self.ORDER_CACHE_TTL)
+        
         return order
     
     async def get_available_orders(self):

@@ -59,6 +59,7 @@ class OrderOut(BaseModel):
     created_at: datetime
     assigned_at: Optional[datetime] = None 
     store: Optional['StoreSummary'] = None
+    is_reviewed: bool = False
     
     delivery_address: Optional[str] = None
     
