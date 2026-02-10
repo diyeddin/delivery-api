@@ -143,7 +143,7 @@ async def create_review(
         "rating": new_review.rating,
         "comment": new_review.comment,
         "created_at": new_review.created_at,
-        "user_name": current_user.full_name or "Anonymous"
+        "user_name": current_user.name or "Anonymous"
     }
 
 @router.get("/{store_id}/reviews", response_model=List[ReviewOut])
