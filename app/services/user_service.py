@@ -176,8 +176,8 @@ class AsyncUserService:
         
         if update_data.name is not None:
             user.name = update_data.name
-        if update_data.address is not None:
-            user.address = update_data.address
+        # if update_data.address is not None:
+            # user.address = update_data.address
         # if update_data.phone is not None:
         #     user.phone = update_data.phone
         
