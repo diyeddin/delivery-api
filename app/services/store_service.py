@@ -154,7 +154,7 @@ class AsyncStoreService:
         # 4. 👇 Sorting Logic
         if sort_by == 'rating':
             # Assumes you have a rating column. If not, remove this block.
-            stmt = stmt.order_by(models.Store.rating.desc())
+            stmt = stmt.order_by(models.Store.rating.asc()) # [TODO] why when i use desc it sorts from lowest to highest in react?
         elif sort_by == 'name':
             stmt = stmt.order_by(models.Store.name.asc())
         else:

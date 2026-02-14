@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        case_sensitive=False,
+        case_sensitive=True,
         extra="ignore"
     )
     
@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # Redis Configuration (Critical for Celery & Idempotency)
     REDIS_URL: Union[str, RedisDsn] = Field(
-        default="redis://localhost:6379/0",
+        default="redis://redis:6379/0",
         description="Redis connection URL"
     )
     

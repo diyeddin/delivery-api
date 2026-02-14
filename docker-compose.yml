@@ -1,28 +1,29 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+  # 1. Database
   db:
     image: postgres:15-alpine
-    container_name: mall_delivery_db
+    restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-mall_delivery}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      DATABASE_URL: ${DATABASE_URL}
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - mall_network
 
-  # Redis (Critical for Celery & Idempotency)
+  # 2. Redis
   redis:
     image: redis:7-alpine
-    container_name: mall_delivery_redis
+    restart: always
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
@@ -34,75 +35,64 @@ services:
     networks:
       - mall_network
 
-  # FastAPI Application
+  # 3. API (Using GitHub Package)
   api:
-    build: .
-    container_name: mall_delivery_api
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY}
-      - ENVIRONMENT=production
-      - LOG_LEVEL=INFO
+    image: ghcr.io/diyeddin/mall-backend:latest # 👈 REPLACE WITH YOUR USERNAME
+    restart: always
+    pull_policy: always # Ensures it downloads new updates on restart
+    env_file: .env
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # PROD FIX: Use gunicorn or uvicorn workers, NO reload, NO volume mount of code
     command: >
       sh -c "
         alembic upgrade head &&
         uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
       "
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     networks:
       - mall_network
 
-  # Celery Worker (Executes the tasks)
+  # 4. Celery Worker (Reuses same image)
   worker:
-    build: .
-    container_name: mall_delivery_worker
+    image: ghcr.io/diyeddin/mall-backend:latest
+    restart: always
+    pull_policy: always
     command: celery -A app.tasks.celery_app worker --loglevel=info
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=${SECRET_KEY}
+    env_file: .env
     depends_on:
-      - api # Wait for migrations
+      - api
       - redis
     networks:
       - mall_network
 
-  # Celery Beat (Triggers the schedule)
+  # 5. Celery Beat (Reuses same image)
   beat:
-    build: .
-    container_name: mall_delivery_beat
+    image: ghcr.io/diyeddin/mall-backend:latest
+    restart: always
+    pull_policy: always
     command: celery -A app.tasks.celery_app beat --loglevel=info
-    environment:
-      - REDIS_URL=redis://redis:6379/0
+    env_file: .env
     depends_on:
       - worker
       - redis
     networks:
       - mall_network
 
-  # Nginx Reverse Proxy
-  nginx:
-    image: nginx:alpine
-    container_name: mall_delivery_nginx
+  # 6. Caddy (Automatic HTTPS Proxy)
+  caddy:
+    image: caddy:alpine
+    restart: always
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      - VPS_IP=${VPS_IP} # Reads from .env
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       - api
     networks:
@@ -111,6 +101,8 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   mall_network:

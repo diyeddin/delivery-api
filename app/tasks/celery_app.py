@@ -1,6 +1,6 @@
 import os
 from celery import Celery
-from core.config import settings
+from app.core.config import settings
 from celery.schedules import crontab # For more complex schedules if needed
 
 # Use REDIS_URL env var or default to localhost

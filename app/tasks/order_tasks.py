@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from typing import int as _int
+# from typing import int as _int
 from app.tasks.celery_app import celery_app
 from app.core.config import settings
 
@@ -38,7 +38,7 @@ def reclaim_expired_assignments(self):
             models.Order.assigned_at <= expiry_threshold,
         )
 
-        orders = session.execute(stmt).scalars().all()
+        orders = session.execute(stmt).unique().scalars().all()
         reverted = 0
         for order in orders:
             order.driver_id = None
