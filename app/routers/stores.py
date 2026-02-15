@@ -48,7 +48,7 @@ async def list_stores(
     q: Optional[str] = None,
     category: Optional[str] = None,
     # 👇 NEW: Sorting Parameter
-    sort_by: Optional[str] = Query("newest", regex="^(newest|rating|name)$"),
+    sort_by: Optional[str] = Query("newest", pattern="^(newest|rating|name)$"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(database.get_db)

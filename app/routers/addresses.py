@@ -12,7 +12,7 @@ router = APIRouter(prefix="/addresses", tags=["addresses"])
 
 
 # --- 1. List My Addresses ---
-@router.get("/", response_model=List[address_schema.AddressOut])
+@router.get("", response_model=List[address_schema.AddressOut])
 async def get_my_addresses(
     db: AsyncSession = Depends(database.get_db),
     current_user: models.User = Depends(get_current_user)

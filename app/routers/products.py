@@ -25,7 +25,7 @@ async def get_products(
     category: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
-    sort_by: Optional[str] = Query("newest", regex="^(newest|price_asc|price_desc)$"),
+    sort_by: Optional[str] = Query("newest", pattern="^(newest|price_asc|price_desc)$"),
     in_stock: bool = False,
     store_id: Optional[int] = None,
     limit: int = Query(20, ge=1, le=100),
