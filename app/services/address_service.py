@@ -2,7 +2,7 @@
 Address service layer for business logic separation with Redis caching.
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from typing import List, Optional, Union, Any
 from app.db import models
 from app.schemas.address import AddressCreate, AddressUpdate
@@ -143,10 +143,11 @@ class AsyncAddressService:
     async def create_address(self, address_data: AddressCreate, user_id: int) -> models.Address:
         """Create a new address."""
         # Check existing count directly from DB
+        # ✅ PERFORMANCE FIX: Use SQL COUNT instead of fetching all rows
         result = await self.db.execute(
-            select(models.Address).where(models.Address.user_id == user_id)
+            select(func.count()).select_from(models.Address).where(models.Address.user_id == user_id)
         )
-        existing_count = len(result.scalars().all())
+        existing_count = result.scalar()
         
         # Logic: First address is always default
         is_default_value = address_data.is_default
@@ -245,6 +246,7 @@ class AsyncAddressService:
         
         return address
 
+    # pydantic does validate, remove if unneccessary
     async def validate_coordinates(self, latitude: float, longitude: float) -> bool:
         if not (-90 <= latitude <= 90): return False
         if not (-180 <= longitude <= 180): return False
