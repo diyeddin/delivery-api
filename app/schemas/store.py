@@ -64,9 +64,13 @@ class StoreOut(StoreBase):
 
 class StoreSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra='ignore', frozen=True)
-    
+
     id: int
     name: str
     image_url: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    phone_number: Optional[str] = None
+    address: Optional[str] = None
     # Optional: Add here if you want ratings in the "Active Order" widget
     rating: Optional[float] = 0.0

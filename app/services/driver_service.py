@@ -67,7 +67,8 @@ class AsyncDriverService:
                 "id": self._get_attr(store, "id"),
                 "name": self._get_attr(store, "name"),
                 "image_url": self._get_attr(store, "image_url"),
-                # "address": self._get_attr(store, "address") # If your model has address
+                "latitude": self._get_attr(store, "latitude"),
+                "longitude": self._get_attr(store, "longitude"),
             }
 
         return {

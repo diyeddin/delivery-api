@@ -58,12 +58,7 @@ async def get_available_orders(
 
 
 # --- 2. Accept Order ---
-class AcceptOrderResponse(BaseModel):
-    message: str
-    order_id: int
-    status: str
-
-@router.post("/accept-order/{order_id}", response_model=AcceptOrderResponse)
+@router.post("/accept-order/{order_id}", response_model=OrderOut)
 async def accept_order(
     order_id: int,
     current_user=Depends(require_driver),
@@ -76,14 +71,10 @@ async def accept_order(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You have reached the maximum number of concurrent deliveries"
         )
-    
+
     try:
         order = await driver_service.accept_order(order_id, current_user.id)
-        return AcceptOrderResponse(
-            message="Order accepted successfully",
-            order_id=order.id,
-            status=order.status.value
-        )
+        return order
     except NotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     except BadRequestError as e:
@@ -105,12 +96,7 @@ async def get_my_deliveries(
 class StatusUpdate(BaseModel):
     new_status: str
 
-class StatusUpdateResponse(BaseModel):
-    message: str
-    order_id: int
-    new_status: str
-
-@router.patch("/delivery-status/{order_id}", response_model=StatusUpdateResponse)
+@router.patch("/delivery-status/{order_id}", response_model=OrderOut)
 async def update_delivery_status(
     order_id: int,
     payload: StatusUpdate,
@@ -122,11 +108,7 @@ async def update_delivery_status(
         order = await driver_service.update_delivery_status(
             order_id, payload.new_status, current_user.id
         )
-        return StatusUpdateResponse(
-            message="Status updated successfully",
-            order_id=order.id,
-            new_status=order.status.value
-        )
+        return order
     except NotFoundError:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     except PermissionDeniedError as e:
