@@ -38,4 +38,4 @@ class AddressOut(AddressBase):
     
     id: int
     user_id: int
-    created_at: datetime  # 👈 Now strictly an Output field
+    created_at: Optional[datetime] = None

@@ -53,10 +53,22 @@ class AsyncDriverService:
                 serialized_items.append({
                     "id": self._get_attr(item, "id"),
                     "product_id": self._get_attr(item, "product_id"),
-                    # "product_name": item.product.name if item.product else f"Item {item.product_id}",
+                    # Add product name if available (optional)
+                    "product": {"name": getattr(item.product, "name", None)} if hasattr(item, "product") and item.product else None,
                     "quantity": self._get_attr(item, "quantity"),
                     "price_at_purchase": float(self._get_attr(item, "price_at_purchase"))
                 })
+
+        # 👇 NEW: Handle Store
+        store = self._get_attr(order, "store")
+        serialized_store = None
+        if store:
+            serialized_store = {
+                "id": self._get_attr(store, "id"),
+                "name": self._get_attr(store, "name"),
+                "image_url": self._get_attr(store, "image_url"),
+                # "address": self._get_attr(store, "address") # If your model has address
+            }
 
         return {
             "id": self._get_attr(order, "id"),
@@ -68,7 +80,8 @@ class AsyncDriverService:
             "delivery_address": self._get_attr(order, "delivery_address"),
             "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
             "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
-            "items": serialized_items
+            "items": serialized_items,
+            "store": serialized_store
         }
 
     async def _cache_set(self, key: str, data: Any, ttl: int):
@@ -136,7 +149,11 @@ class AsyncDriverService:
         # 2. DB Fallback
         stmt = (
             select(models.Order)
-            .options(selectinload(models.Order.items).selectinload(models.OrderItem.product))
+            .options(
+                selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                selectinload(models.Order.store), # 👈 LOAD STORE
+                selectinload(models.Order.user)   # 👈 LOAD CUSTOMER (Optional)
+                )
             .where(models.Order.driver_id == driver_id)
             .order_by(models.Order.created_at.desc())
         )

@@ -1,17 +1,39 @@
-# app/routers/drivers.py
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import List, Optional, Dict
+from fastapi import APIRouter, Depends, HTTPException, status, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db
-from app.db.models import UserRole, OrderStatus
+from app.db import models
+from app.db.models import UserRole
 from app.services.driver_service import AsyncDriverService
 from app.schemas.order import OrderOut
-from app.utils.dependencies import get_current_user
+from app.utils.dependencies import get_current_user, get_current_user_ws # 👈 Imported the new helper
 from app.utils.exceptions import NotFoundError, BadRequestError, PermissionDeniedError
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/drivers", tags=["drivers"])
 
+# ─── 0. CONNECTION MANAGER (NEW) ───────────────────────
+class DriverConnectionManager:
+    def __init__(self):
+        # Maps driver_id -> WebSocket connection
+        self.active_connections: Dict[int, WebSocket] = {}
+
+    async def connect(self, websocket: WebSocket, driver_id: int):
+        await websocket.accept()
+        self.active_connections[driver_id] = websocket
+        print(f"✅ Driver {driver_id} connected. Total: {len(self.active_connections)}")
+
+    def disconnect(self, driver_id: int):
+        if driver_id in self.active_connections:
+            del self.active_connections[driver_id]
+            print(f"❌ Driver {driver_id} disconnected")
+
+    async def send_personal_message(self, message: dict, driver_id: int):
+        if driver_id in self.active_connections:
+            await self.active_connections[driver_id].send_json(message)
+
+# Global Instance
+driver_manager = DriverConnectionManager()
 
 # --- Helper: Require Driver Role ---
 def require_driver(current_user=Depends(get_current_user)):
@@ -30,10 +52,6 @@ async def get_available_orders(
     current_user=Depends(require_driver),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Get orders available for driver assignment.
-    Returns orders with 'confirmed' status and no assigned driver.
-    """
     driver_service = AsyncDriverService(db)
     orders = await driver_service.get_available_orders()
     return orders
@@ -51,13 +69,7 @@ async def accept_order(
     current_user=Depends(require_driver),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Accept an available order for delivery.
-    Uses atomic operation to prevent race conditions.
-    """
     driver_service = AsyncDriverService(db)
-    
-    # Check if driver is available (not overloaded)
     is_available = await driver_service.check_driver_availability(current_user.id)
     if not is_available:
         raise HTTPException(
@@ -73,15 +85,9 @@ async def accept_order(
             status=order.status.value
         )
     except NotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     except BadRequestError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 # --- 3. Get My Deliveries ---
@@ -90,7 +96,6 @@ async def get_my_deliveries(
     current_user=Depends(require_driver),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get all orders assigned to the current driver."""
     driver_service = AsyncDriverService(db)
     orders = await driver_service.get_driver_deliveries(current_user.id)
     return orders
@@ -112,17 +117,10 @@ async def update_delivery_status(
     current_user=Depends(require_driver),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Update delivery status for assigned orders.
-    Only the assigned driver can update the status.
-    """
     driver_service = AsyncDriverService(db)
-    
     try:
         order = await driver_service.update_delivery_status(
-            order_id,
-            payload.new_status,
-            current_user.id
+            order_id, payload.new_status, current_user.id
         )
         return StatusUpdateResponse(
             message="Status updated successfully",
@@ -130,23 +128,14 @@ async def update_delivery_status(
             new_status=order.status.value
         )
     except NotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Order not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Order not found")
     except PermissionDeniedError as e:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
     except BadRequestError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-# --- 5. NEW: Get Driver Stats ---
+# --- 5. Get Driver Stats ---
 class DriverStatsResponse(BaseModel):
     driver_id: int
     total_deliveries: int
@@ -159,41 +148,30 @@ async def get_driver_stats(
     current_user=Depends(require_driver),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get statistics for the current driver."""
     driver_service = AsyncDriverService(db)
     stats = await driver_service.get_driver_stats(current_user.id)
     return DriverStatsResponse(**stats)
 
 
-# --- 6. NEW: Get Delivery History ---
+# --- 6. Get Delivery History ---
 @router.get("/history", response_model=List[OrderOut])
 async def get_delivery_history(
-    status_filter: Optional[str] = Query(None, description="Filter by order status"),
-    limit: int = Query(50, ge=1, le=100, description="Number of orders to return"),
+    status_filter: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=100),
     current_user=Depends(require_driver),
     db: AsyncSession = Depends(get_db)
 ):
-    """
-    Get delivery history for the current driver.
-    Optionally filter by status (e.g., 'delivered', 'canceled').
-    """
     driver_service = AsyncDriverService(db)
-    
     try:
         orders = await driver_service.get_delivery_history(
-            current_user.id,
-            status_filter=status_filter,
-            limit=limit
+            current_user.id, status_filter=status_filter, limit=limit
         )
         return orders
     except BadRequestError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
-# --- 7. NEW: Check Availability ---
+# --- 7. Check Availability ---
 class AvailabilityResponse(BaseModel):
     is_available: bool
     message: str
@@ -203,23 +181,15 @@ async def check_availability(
     current_user=Depends(require_driver),
     db: AsyncSession = Depends(get_db)
 ):
-    """Check if the driver can accept more orders."""
     driver_service = AsyncDriverService(db)
     is_available = await driver_service.check_driver_availability(current_user.id)
-    
     if is_available:
-        return AvailabilityResponse(
-            is_available=True,
-            message="You can accept more orders"
-        )
+        return AvailabilityResponse(is_available=True, message="You can accept more orders")
     else:
-        return AvailabilityResponse(
-            is_available=False,
-            message="You have reached the maximum number of concurrent deliveries"
-        )
+        return AvailabilityResponse(is_available=False, message="Max concurrent deliveries reached")
 
 
-# --- 8. NEW: Get Nearby Drivers (Admin/Customer View) ---
+# --- 8. Get Nearby Drivers ---
 class NearbyDriverResponse(BaseModel):
     driver_id: int
     name: str
@@ -236,10 +206,43 @@ async def get_nearby_drivers(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user)
 ):
-    """
-    Get active drivers near a location.
-    Useful for customers to see nearby drivers or for admin dashboards.
-    """
     driver_service = AsyncDriverService(db)
     drivers = await driver_service.get_nearby_drivers(latitude, longitude, radius_km)
     return [NearbyDriverResponse(**driver) for driver in drivers]
+
+
+# ─── 9. WEBSOCKET ENDPOINT (NEW) ───────────────────────
+@router.websocket("/ws")
+async def driver_websocket_endpoint(
+    websocket: WebSocket,
+    token: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Real-time WebSocket connection for drivers.
+    Requires ?token=JWT_TOKEN in the URL.
+    """
+    # 1. Authenticate using the specific WS helper
+    user = await get_current_user_ws(token, db)
+
+    # 2. Validate User and Role
+    if not user or user.role != models.UserRole.driver:
+        print(f"⛔ WS Connection Rejected: {user.email if user else 'Invalid Token'}")
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # 3. Accept Connection
+    await driver_manager.connect(websocket, user.id)
+
+    try:
+        while True:
+            # Keep connection alive
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+                
+    except WebSocketDisconnect:
+        driver_manager.disconnect(user.id)
+    except Exception as e:
+        print(f"❌ WS Error: {e}")
+        driver_manager.disconnect(user.id)

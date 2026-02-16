@@ -79,6 +79,7 @@ def require_scope(required_scope: Union[str, List[str]]):
                 
         return current_user
     return scope_checker
+
 async def verify_order_access(
     order_id: int, 
     db: AsyncSession = Depends(database.get_db),
@@ -102,3 +103,29 @@ async def verify_order_access(
             raise HTTPException(status_code=403, detail="Not authorized to access orders from other stores")
             
     return order
+
+async def get_current_user_ws(token: str, db: AsyncSession) -> models.User | None:
+    """
+    Authenticate WebSocket connections using the query param token.
+    Returns None if validation fails, instead of raising HTTPException (which breaks WebSockets).
+    """
+    if not token:
+        return None
+
+    # 1. Verify JWT signature using your existing core security
+    payload = security.verify_token(token)
+    if not payload:
+        return None
+    
+    # 2. Extract email
+    email = payload.get("sub")
+    if not email:
+        return None
+        
+    # 3. Check DB (Matches your logic in get_current_user)
+    try:
+        result = await db.execute(select(models.User).where(models.User.email == email))
+        user = result.unique().scalar_one_or_none()
+        return user
+    except Exception:
+        return None

@@ -307,7 +307,8 @@ class AsyncStoreService:
         await self.db.commit() 
         # No refresh yet, we want to update the store first
 
-        # F. Recalculate Store Stats
+        # F. Recalculate Store Stats [TODO] Optimize: This can be optimized with incremental updates instead of full recalculation
+        # also fix the floating point issue
         stmt = select(
             func.avg(models.Review.rating), 
             func.count(models.Review.id)
