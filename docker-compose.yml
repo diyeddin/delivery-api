@@ -1,32 +1,40 @@
 version: '3.8'
 
 services:
-  # 1. Database
+  # 1. Database (Optimized for Low-RAM VPS)
   db:
     image: postgres:15-alpine
     restart: always
     environment:
-      DATABASE_URL: ${DATABASE_URL}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M  # 👈 Vital for VPS stability
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      # VPS version was better here: checks specific DB name
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - mall_network
 
-  # 2. Redis
+  # 2. Redis (Added persistence + limits)
   redis:
     image: redis:7-alpine
     restart: always
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes # 👈 Local version win: keeps data if crash
     volumes:
       - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 128M # Bumped slightly from 64M for safety
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -35,52 +43,66 @@ services:
     networks:
       - mall_network
 
-  # 3. API (Using GitHub Package)
+  # 3. API
   api:
-    image: ghcr.io/diyeddin/mall-backend:latest # 👈 REPLACE WITH YOUR USERNAME
+    image: ghcr.io/diyeddin/mall-backend:latest
     restart: always
-    pull_policy: always # Ensures it downloads new updates on restart
+    pull_policy: always
     env_file: .env
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512M # Prevents Python from eating 100% RAM
     command: >
       sh -c "
         alembic upgrade head &&
-        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+        uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
       "
+    # Note: 'workers 2' is better for VPS. 'workers 4' is overkill for <2 vCPUs
     networks:
       - mall_network
 
-  # 4. Celery Worker (Reuses same image)
+  # 4. Celery Worker
   worker:
     image: ghcr.io/diyeddin/mall-backend:latest
     restart: always
     pull_policy: always
-    command: celery -A app.tasks.celery_app worker --loglevel=info
     env_file: .env
+    # 👈 Added concurrency=1 (VPS win). Default spawns 1 worker per CPU core, which kills small VPS.
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=1
     depends_on:
       - api
       - redis
+    deploy:
+      resources:
+        limits:
+          memory: 256M # Strict limit. Workers leak memory over time.
     networks:
       - mall_network
 
-  # 5. Celery Beat (Reuses same image)
+  # 5. Celery Beat
   beat:
     image: ghcr.io/diyeddin/mall-backend:latest
     restart: always
     pull_policy: always
-    command: celery -A app.tasks.celery_app beat --loglevel=info
     env_file: .env
+    command: celery -A app.tasks.celery_app beat --loglevel=info
     depends_on:
       - worker
       - redis
+    deploy:
+      resources:
+        limits:
+          memory: 128M # Beat is lightweight
     networks:
       - mall_network
 
-  # 6. Caddy (Automatic HTTPS Proxy)
+  # 6. Caddy (Reverse Proxy)
   caddy:
     image: caddy:alpine
     restart: always
@@ -88,7 +110,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      - VPS_IP=${VPS_IP} # Reads from .env
+      - VPS_IP=${VPS_IP}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - caddy_data:/data
@@ -107,109 +129,3 @@ volumes:
 networks:
   mall_network:
     driver: bridge
-
-
-
-# FILE RUNNING IN VPS, COMPARE AND SEE WHAT'S BEST
-
-# version: '3.8'
- 
-# services:
-#   db:
-#     image: postgres:15-alpine
-#     restart: always
-#     environment:
-#       POSTGRES_USER: ${POSTGRES_USER}
-#       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-#       POSTGRES_DB: ${POSTGRES_DB}
-#     volumes:
-#       - postgres_data:/var/lib/postgresql/data
-#     deploy:
-#       resources:
-#         limits:
-#           memory: 256M
-#     healthcheck:
-#       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-#       interval: 10s
-#       timeout: 5s
-#       retries: 5
-#     networks:
-#       - mall_network
-
-#   redis:
-#     image: redis:7-alpine
-#     restart: always
-#     deploy:
-#       resources:
-#         limits:
-#           memory: 64M
-#     networks:
-#       - mall_network
-
-#   api:
-#     image: ghcr.io/diyeddin/mall-backend:latest
-#     restart: always
-#     pull_policy: always
-#     env_file: .env
-#     depends_on:
-#       db:
-#         condition: service_healthy
-#     deploy:
-#       resources:
-#         limits:
-#           memory: 512M
-#     command: >
-#       sh -c "
-#         alembic upgrade head &&
-#         uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
-#       "
-#     networks:
-#       - mall_network
-
-#   worker:
-#     image: ghcr.io/diyeddin/mall-backend:latest
-#     restart: always
-#     env_file: .env
-#     # Reduced concurrency to 1 to save RAM
-#     command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=1
-#     depends_on:
-#       - api
-#       - redis
-#     deploy:
-#       resources:
-#         limits:
-#           memory: 200M
-#     networks:
-#       - mall_network
-
-#   beat:
-#     image: ghcr.io/diyeddin/mall-backend:latest
-#     restart: always
-#     env_file: .env
-#     command: celery -A app.tasks.celery_app beat --loglevel=info
-#     depends_on:
-#       - worker
-#     networks:
-#       - mall_network
-
-#   caddy:
-#     image: caddy:alpine
-#     restart: always
-#     ports:
-#       - "80:80"
-#       - "443:443"
-#     volumes:
-#       - ./Caddyfile:/etc/caddy/Caddyfile
-#       - caddy_data:/data
-#       - caddy_config:/config
-#     networks:
-#       - mall_network
-
-# volumes:
-#   postgres_data:
-#   caddy_data:
-#   caddy_config:
-
-# networks:
-#   mall_network:
-#     driver: bridge

@@ -22,6 +22,9 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
     payload = security.verify_token(token)
     if not payload:
         raise credentials_exception
+    # Reject refresh tokens used as access tokens
+    if payload.get("token_type") == "refresh":
+        raise credentials_exception
     email = payload.get("sub")
     if not email:
         raise credentials_exception
