@@ -53,8 +53,11 @@ class AsyncDriverService:
                 serialized_items.append({
                     "id": self._get_attr(item, "id"),
                     "product_id": self._get_attr(item, "product_id"),
-                    # Add product name if available (optional)
-                    "product": {"name": getattr(item.product, "name", None)} if hasattr(item, "product") and item.product else None,
+                    "product": {
+                        "id": getattr(item.product, "id", None),
+                        "name": getattr(item.product, "name", None),
+                        "image_url": getattr(item.product, "image_url", None)
+                    } if hasattr(item, "product") and item.product else None,
                     "quantity": self._get_attr(item, "quantity"),
                     "price_at_purchase": float(self._get_attr(item, "price_at_purchase"))
                 })
@@ -79,6 +82,8 @@ class AsyncDriverService:
             "status": self._get_attr(order, "status") if isinstance(self._get_attr(order, "status"), str) else self._get_attr(order, "status").value,
             "total_price": float(self._get_attr(order, "total_price")),
             "delivery_address": self._get_attr(order, "delivery_address"),
+            "delivery_latitude": self._get_attr(order, "delivery_latitude"),
+            "delivery_longitude": self._get_attr(order, "delivery_longitude"),
             "assigned_at": self._get_attr(order, "assigned_at").isoformat() if self._get_attr(order, "assigned_at") else None,
             "created_at": self._get_attr(order, "created_at").isoformat() if self._get_attr(order, "created_at") else None,
             "items": serialized_items,

@@ -44,7 +44,9 @@ class AsyncOrderService:
             "status": self._get_attr(order, "status").value,
             "total_price": float(self._get_attr(order, "total_price")),
             "delivery_address": self._get_attr(order, "delivery_address"),
-            
+            "delivery_latitude": self._get_attr(order, "delivery_latitude"),
+            "delivery_longitude": self._get_attr(order, "delivery_longitude"),
+
             # 👇 NEW: Serialize new fields
             "payment_method": self._get_attr(order, "payment_method").value if hasattr(self._get_attr(order, "payment_method"), "value") else self._get_attr(order, "payment_method"),
             "note": self._get_attr(order, "note"),
