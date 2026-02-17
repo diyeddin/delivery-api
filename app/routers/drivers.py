@@ -1,6 +1,7 @@
 import json
 from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.database import get_db, AsyncSessionLocal
 from app.db import models
@@ -248,6 +249,26 @@ async def driver_websocket_endpoint(
                         )
                     except Exception as e:
                         print(f"⚠️ Location update failed for driver {user.id}: {e}")
+
+                    # Relay location to order rooms for live customer tracking
+                    try:
+                        from app.routers.orders import manager as orders_manager
+                        result = await session.execute(
+                            select(models.Order.id).where(
+                                models.Order.driver_id == user.id,
+                                models.Order.status.notin_(["delivered", "canceled"])
+                            )
+                        )
+                        active_order_ids = result.scalars().all()
+                        gps_payload = {
+                            "type": "gps_update",
+                            "latitude": float(lat),
+                            "longitude": float(lng),
+                        }
+                        for order_id in active_order_ids:
+                            await orders_manager.broadcast(str(order_id), gps_payload)
+                    except Exception as e:
+                        print(f"⚠️ GPS broadcast failed for driver {user.id}: {e}")
                 
     except WebSocketDisconnect:
         driver_manager.disconnect(user.id)
