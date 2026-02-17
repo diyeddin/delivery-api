@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, WebSocket, WebSocketDisconnect
 from fastapi.params import Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -112,23 +113,33 @@ async def websocket_endpoint(
     
     try:
         while True:
-            # We listen to keep the connection open
-            data = await websocket.receive_json()
-            
-            # Example: If a driver sends GPS, verify they are actually a driver
+            # 65s timeout = 2 missed heartbeats (client pings every 30s) + 5s grace
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=65.0)
+            except asyncio.TimeoutError:
+                # Client stopped responding — disconnect
+                await websocket.close(code=1000)
+                break
+
+            # Heartbeat: respond to client pings
+            if data.get("type") == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+
+            # If a driver sends GPS, verify they are actually a driver
             if data.get("type") == "location_update":
                 if user_role != "driver":
                     # Ignore fake GPS data from customers
-                    continue 
+                    continue
 
                 # Broadcast to the room
                 payload = {
-                    "type": "gps_update", 
+                    "type": "gps_update",
                     "latitude": data.get("latitude"),
                     "longitude": data.get("longitude")
                 }
                 await manager.broadcast(order_room, payload)
-                
+
     except WebSocketDisconnect:
         manager.disconnect(websocket, order_room)
 
