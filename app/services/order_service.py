@@ -162,8 +162,10 @@ class AsyncOrderService:
                     status=models.OrderStatus.pending,
                     total_price=total_price,
                     delivery_address=order_data.delivery_address or current_user.address or "Default Address",
-                    payment_method=order_data.payment_method, # <--- NEW
-                    note=order_data.note, # <--- NEW
+                    delivery_latitude=order_data.delivery_latitude,
+                    delivery_longitude=order_data.delivery_longitude,
+                    payment_method=order_data.payment_method,
+                    note=order_data.note,
                     items=db_order_items
                 )
                 self.db.add(db_order)

@@ -14,6 +14,8 @@ class OrderCreate(BaseModel):
     
     # Existing Field
     delivery_address: Optional[str] = Field(None, min_length=5, max_length=255, description="Delivery address if different from profile")
+    delivery_latitude: Optional[float] = Field(None, ge=-90, le=90, description="Delivery location latitude")
+    delivery_longitude: Optional[float] = Field(None, ge=-180, le=180, description="Delivery location longitude")
     
     # 👇 NEW FIELDS
     payment_method: str = Field("cash", pattern="^(cash|transfer)$", description="Payment method: 'cash' or 'transfer'")
@@ -62,6 +64,8 @@ class OrderOut(BaseModel):
     is_reviewed: bool = False
     
     delivery_address: Optional[str] = None
+    delivery_latitude: Optional[float] = None
+    delivery_longitude: Optional[float] = None
     
     # 👇 NEW FIELDS IN RESPONSE
     payment_method: str = "cash"

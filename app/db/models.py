@@ -131,6 +131,8 @@ class Order(Base):
     total_price = Column(Float, default=0.0)
 
     delivery_address = Column(String, nullable=True)
+    delivery_latitude = Column(Float, nullable=True)
+    delivery_longitude = Column(Float, nullable=True)
     payment_method = Column(Enum(PaymentMethod), default=PaymentMethod.cash, nullable=False)
     note = Column(String, nullable=True) # For delivery instructions
     # delivery_instructions = Column(String, nullable=True) # fix later
