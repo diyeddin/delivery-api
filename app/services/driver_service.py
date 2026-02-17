@@ -127,7 +127,10 @@ class AsyncDriverService:
         # 2. DB Fallback
         stmt = (
             select(models.Order)
-            .options(selectinload(models.Order.items).selectinload(models.OrderItem.product))
+            .options(
+                selectinload(models.Order.items).selectinload(models.OrderItem.product),
+                selectinload(models.Order.store)
+            )
             .where(models.Order.status == models.OrderStatus.confirmed)
             .where(models.Order.driver_id == None)
             .order_by(models.Order.created_at.asc())  # Oldest first
