@@ -1,5 +1,5 @@
 # app/routers/auth.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -8,12 +8,17 @@ from app.db import models, database
 from app.schemas.user import UserCreate, UserOut
 from app.core import security
 from app.core.logging import get_logger, log_auth_event
+from app.utils.rate_limit import check_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = get_logger(__name__)
 
 @router.post("/signup", response_model=UserOut)
-async def signup(user: UserCreate, db: AsyncSession = Depends(database.get_db)):
+async def signup(request: Request, user: UserCreate, db: AsyncSession = Depends(database.get_db)):
+    # Rate limit: 3 signups per IP per hour
+    client_ip = request.client.host if request.client else "unknown"
+    await check_rate_limit(f"rl:signup:{client_ip}", max_attempts=3, window_seconds=3600)
+
     logger.info("User registration attempt", email=user.email)
 
     # 1. Check if email exists
@@ -45,6 +50,9 @@ async def signup(user: UserCreate, db: AsyncSession = Depends(database.get_db)):
 
 @router.post("/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(database.get_db)):
+    # Rate limit: 5 login attempts per email per 15 minutes
+    await check_rate_limit(f"rl:login:{form_data.username}", max_attempts=5, window_seconds=900)
+
     logger.info("Login attempt", email=form_data.username)
 
     result = await db.execute(select(models.User).where(models.User.email == form_data.username))
