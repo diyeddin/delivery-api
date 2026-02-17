@@ -1,12 +1,14 @@
+import json
 from typing import List, Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, status, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.db import models
 from app.db.models import UserRole
 from app.services.driver_service import AsyncDriverService
+from app.services.user_service import AsyncUserService
 from app.schemas.order import OrderOut
-from app.utils.dependencies import get_current_user, get_current_user_ws # 👈 Imported the new helper
+from app.utils.dependencies import get_current_user, get_current_user_ws
 from app.utils.exceptions import NotFoundError, BadRequestError, PermissionDeniedError
 from pydantic import BaseModel
 
@@ -218,10 +220,34 @@ async def driver_websocket_endpoint(
 
     try:
         while True:
-            # Keep connection alive
             data = await websocket.receive_text()
+
             if data == "ping":
                 await websocket.send_text("pong")
+                continue
+
+            # Parse JSON messages
+            try:
+                msg = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+
+            if msg.get("type") == "location_update":
+                lat = msg.get("latitude")
+                lng = msg.get("longitude")
+                if lat is None or lng is None:
+                    continue
+                # Use a fresh session for each update (WS is long-lived)
+                async with AsyncSessionLocal() as session:
+                    user_service = AsyncUserService(session)
+                    try:
+                        await user_service.update_driver_location(
+                            user_id=user.id,
+                            latitude=float(lat),
+                            longitude=float(lng),
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Location update failed for driver {user.id}: {e}")
                 
     except WebSocketDisconnect:
         driver_manager.disconnect(user.id)
