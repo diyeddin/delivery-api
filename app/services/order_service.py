@@ -59,7 +59,11 @@ class AsyncOrderService:
             "store": {
                 "id": order.store.id,
                 "name": order.store.name,
-                "image_url": order.store.image_url
+                "image_url": order.store.image_url,
+                "latitude": getattr(order.store, "latitude", None),
+                "longitude": getattr(order.store, "longitude", None),
+                "phone_number": getattr(order.store, "phone_number", None),
+                "address": getattr(order.store, "address", None),
             } if getattr(order, "store", None) else None,
 
             "items": [
