@@ -6,6 +6,7 @@ from sqlalchemy import select
 from typing import List, Dict
 from app.core.security import verify_token
 from app.db import database, models
+from app.db.database import AsyncSessionLocal
 from app.schemas import order as order_schema
 from app.services.order_service import AsyncOrderService
 from app.utils.dependencies import require_scope
@@ -110,6 +111,25 @@ async def websocket_endpoint(
     # --- STEP 3: CONNECTION ---
     order_room = str(order_id)
     await manager.connect(websocket, order_room)
+
+    # --- STEP 3.5: SEND LAST KNOWN DRIVER LOCATION ---
+    try:
+        async with AsyncSessionLocal() as init_session:
+            order_row = await init_session.execute(
+                select(models.Order).options(selectinload(models.Order.driver))
+                .where(models.Order.id == order_id)
+            )
+            order_obj = order_row.scalar_one_or_none()
+            if (order_obj and order_obj.driver
+                    and order_obj.driver.latitude is not None
+                    and order_obj.driver.longitude is not None):
+                await websocket.send_json({
+                    "type": "gps_update",
+                    "latitude": float(order_obj.driver.latitude),
+                    "longitude": float(order_obj.driver.longitude),
+                })
+    except Exception as e:
+        logger.error(f"Failed to send initial driver location: {e}")
     
     try:
         while True:
