@@ -47,6 +47,10 @@ class AsyncOrderService:
             "delivery_latitude": self._get_attr(order, "delivery_latitude"),
             "delivery_longitude": self._get_attr(order, "delivery_longitude"),
 
+            # Driver's current GPS (from relationship property)
+            "driver_latitude": getattr(order, "driver_latitude", None), # can these be replaced with _get_attr? Yes, but these are properties so we access them directly
+            "driver_longitude": getattr(order, "driver_longitude", None),
+
             # 👇 NEW: Serialize new fields
             "payment_method": self._get_attr(order, "payment_method").value if hasattr(self._get_attr(order, "payment_method"), "value") else self._get_attr(order, "payment_method"),
             "note": self._get_attr(order, "note"),
@@ -105,7 +109,8 @@ class AsyncOrderService:
             select(models.Order)
             .options(
                 selectinload(models.Order.items).selectinload(models.OrderItem.product),
-                selectinload(models.Order.store)
+                selectinload(models.Order.store),
+                selectinload(models.Order.driver)
             )
             .where(models.Order.id == order_id)
         )
@@ -233,7 +238,8 @@ class AsyncOrderService:
             select(models.Order)
             .options(
                 selectinload(models.Order.items).selectinload(models.OrderItem.product),
-                selectinload(models.Order.store)
+                selectinload(models.Order.store),
+                selectinload(models.Order.driver)
             )
             .where(models.Order.id == order_id)
         )
@@ -304,7 +310,8 @@ class AsyncOrderService:
             select(models.Order)
             .options(
                 selectinload(models.Order.items).selectinload(models.OrderItem.product),
-                selectinload(models.Order.store)
+                selectinload(models.Order.store),
+                selectinload(models.Order.driver)
             )
             .where(models.Order.user_id == current_user.id)
             .order_by(models.Order.created_at.desc())

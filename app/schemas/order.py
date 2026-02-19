@@ -66,6 +66,10 @@ class OrderOut(BaseModel):
     delivery_address: Optional[str] = None
     delivery_latitude: Optional[float] = None
     delivery_longitude: Optional[float] = None
+
+    # Driver's current GPS coordinates (populated from driver relationship)
+    driver_latitude: Optional[float] = None
+    driver_longitude: Optional[float] = None
     
     # 👇 NEW FIELDS IN RESPONSE
     payment_method: str = "cash"

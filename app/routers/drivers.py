@@ -11,7 +11,10 @@ from app.services.user_service import AsyncUserService
 from app.schemas.order import OrderOut
 from app.utils.dependencies import get_current_user, get_current_user_ws
 from app.utils.exceptions import NotFoundError, BadRequestError, PermissionDeniedError
+from app.core.logging import get_logger
 from pydantic import BaseModel
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/drivers", tags=["drivers"])
 
@@ -24,12 +27,12 @@ class DriverConnectionManager:
     async def connect(self, websocket: WebSocket, driver_id: int):
         await websocket.accept()
         self.active_connections[driver_id] = websocket
-        print(f"✅ Driver {driver_id} connected. Total: {len(self.active_connections)}")
+        logger.info(f"Driver {driver_id} connected. Total: {len(self.active_connections)}")
 
     def disconnect(self, driver_id: int):
         if driver_id in self.active_connections:
             del self.active_connections[driver_id]
-            print(f"❌ Driver {driver_id} disconnected")
+            logger.info(f"Driver {driver_id} disconnected")
 
     async def send_personal_message(self, message: dict, driver_id: int):
         if driver_id in self.active_connections:
@@ -212,7 +215,7 @@ async def driver_websocket_endpoint(
 
     # 2. Validate User and Role
     if not user or user.role != models.UserRole.driver:
-        print(f"⛔ WS Connection Rejected: {user.email if user else 'Invalid Token'}")
+        logger.warning(f"WS Connection Rejected: {user.email if user else 'Invalid Token'}")
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -238,25 +241,30 @@ async def driver_websocket_endpoint(
                 lng = msg.get("longitude")
                 if lat is None or lng is None:
                     continue
-                # Use a fresh session for each update (WS is long-lived)
-                async with AsyncSessionLocal() as session:
-                    user_service = AsyncUserService(session)
+
+                # 1. Save location (independent session)
+                async with AsyncSessionLocal() as save_session:
                     try:
+                        user_service = AsyncUserService(save_session)
                         await user_service.update_driver_location(
                             user_id=user.id,
                             latitude=float(lat),
                             longitude=float(lng),
                         )
                     except Exception as e:
-                        print(f"⚠️ Location update failed for driver {user.id}: {e}")
+                        logger.error(f"Location update failed for driver {user.id}", exc_info=True)
 
-                    # Relay location to order rooms for live customer tracking
+                # 2. Broadcast to customer rooms (independent session)
+                async with AsyncSessionLocal() as broadcast_session:
                     try:
                         from app.routers.orders import manager as orders_manager
-                        result = await session.execute(
+                        result = await broadcast_session.execute(
                             select(models.Order.id).where(
                                 models.Order.driver_id == user.id,
-                                models.Order.status.notin_(["delivered", "canceled"])
+                                models.Order.status.notin_([
+                                    models.OrderStatus.delivered,
+                                    models.OrderStatus.canceled
+                                ])
                             )
                         )
                         active_order_ids = result.scalars().all()
@@ -267,11 +275,12 @@ async def driver_websocket_endpoint(
                         }
                         for order_id in active_order_ids:
                             await orders_manager.broadcast(str(order_id), gps_payload)
+                        logger.info(f"GPS broadcast to {len(active_order_ids)} orders for driver {user.id}")
                     except Exception as e:
-                        print(f"⚠️ GPS broadcast failed for driver {user.id}: {e}")
+                        logger.error(f"GPS broadcast failed for driver {user.id}", exc_info=True)
                 
     except WebSocketDisconnect:
         driver_manager.disconnect(user.id)
     except Exception as e:
-        print(f"❌ WS Error: {e}")
+        logger.error(f"Driver WS error for {user.id}", exc_info=True)
         driver_manager.disconnect(user.id)

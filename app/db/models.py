@@ -159,6 +159,24 @@ class Order(Base):
             return True
         return (datetime.now(timezone.utc) - self.assigned_at) > timedelta(minutes=10)
 
+    @property
+    def driver_latitude(self):
+        try:
+            if self.driver and self.driver.latitude is not None:
+                return float(self.driver.latitude)
+        except Exception:
+            return None
+        return None
+
+    @property
+    def driver_longitude(self):
+        try:
+            if self.driver and self.driver.longitude is not None:
+                return float(self.driver.longitude)
+        except Exception:
+            return None
+        return None
+
 class OrderItem(Base):
     __tablename__ = "order_items"
     id = Column(Integer, primary_key=True, index=True)
