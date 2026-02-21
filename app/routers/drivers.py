@@ -13,6 +13,7 @@ from app.utils.dependencies import get_current_user, get_current_user_ws
 from app.utils.exceptions import NotFoundError, BadRequestError, PermissionDeniedError
 from app.core.logging import get_logger
 from pydantic import BaseModel
+from app.schemas.ws import parse_ws_message, LocationUpdateMessage, PingMessage
 
 logger = get_logger(__name__)
 
@@ -226,30 +227,42 @@ async def driver_websocket_endpoint(
         while True:
             data = await websocket.receive_text()
 
+            # Legacy plain-text ping support
             if data == "ping":
                 await websocket.send_text("pong")
                 continue
 
             # Parse JSON messages
             try:
-                msg = json.loads(data)
+                raw = json.loads(data)
             except json.JSONDecodeError:
+                logger.warning("Malformed WS message (not JSON)", driver_id=user.id, raw_data=data[:200])
+                await websocket.send_json({"type": "error", "message": "Invalid JSON"})
                 continue
 
-            if msg.get("type") == "location_update":
-                lat = msg.get("latitude")
-                lng = msg.get("longitude")
-                if lat is None or lng is None:
-                    continue
+            # Validate against Pydantic models
+            try:
+                msg = parse_ws_message(raw)
+            except ValueError as e:
+                logger.warning("Invalid WS message", driver_id=user.id, error=str(e), raw_type=raw.get("type"))
+                await websocket.send_json({"type": "error", "message": str(e)})
+                continue
 
+            # Handle ping
+            if isinstance(msg, PingMessage):
+                await websocket.send_json({"type": "pong"})
+                continue
+
+            # Handle location update
+            if isinstance(msg, LocationUpdateMessage):
                 # 1. Save location (independent session)
                 async with AsyncSessionLocal() as save_session:
                     try:
                         user_service = AsyncUserService(save_session)
                         await user_service.update_driver_location(
                             user_id=user.id,
-                            latitude=float(lat),
-                            longitude=float(lng),
+                            latitude=msg.latitude,
+                            longitude=msg.longitude,
                         )
                     except Exception as e:
                         logger.error(f"Location update failed for driver {user.id}", exc_info=True)
@@ -270,15 +283,15 @@ async def driver_websocket_endpoint(
                         active_order_ids = result.scalars().all()
                         gps_payload = {
                             "type": "gps_update",
-                            "latitude": float(lat),
-                            "longitude": float(lng),
+                            "latitude": msg.latitude,
+                            "longitude": msg.longitude,
                         }
                         for order_id in active_order_ids:
                             await orders_manager.broadcast(str(order_id), gps_payload)
                         logger.info(f"GPS broadcast to {len(active_order_ids)} orders for driver {user.id}")
                     except Exception as e:
                         logger.error(f"GPS broadcast failed for driver {user.id}", exc_info=True)
-                
+
     except WebSocketDisconnect:
         driver_manager.disconnect(user.id)
     except Exception as e:

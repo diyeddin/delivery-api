@@ -12,6 +12,7 @@ from app.services.order_service import AsyncOrderService
 from app.utils.dependencies import require_scope
 from app.utils.exceptions import NotFoundError, BadRequestError, PermissionDeniedError, InvalidOrderStatusError
 from app.core.logging import get_logger, log_business_event
+from app.schemas.ws import parse_ws_message, PingMessage, LocationUpdateMessage
 from sqlalchemy.orm import selectinload
 
 # --- Expo SDK Imports ---
@@ -141,22 +142,30 @@ async def websocket_endpoint(
                 await websocket.close(code=1000)
                 break
 
+            # Validate against Pydantic models
+            try:
+                msg = parse_ws_message(data)
+            except ValueError as e:
+                logger.warning("Invalid WS message on orders", user_id=user_id, order_id=order_id, error=str(e), raw_type=data.get("type") if isinstance(data, dict) else None)
+                await websocket.send_json({"type": "error", "message": str(e)})
+                continue
+
             # Heartbeat: respond to client pings
-            if data.get("type") == "ping":
+            if isinstance(msg, PingMessage):
                 await websocket.send_json({"type": "pong"})
                 continue
 
             # If a driver sends GPS, verify they are actually a driver
-            if data.get("type") == "location_update":
+            if isinstance(msg, LocationUpdateMessage):
                 if user_role != "driver":
-                    # Ignore fake GPS data from customers
+                    await websocket.send_json({"type": "error", "message": "Only drivers can send location updates"})
                     continue
 
                 # Broadcast to the room
                 payload = {
                     "type": "gps_update",
-                    "latitude": data.get("latitude"),
-                    "longitude": data.get("longitude")
+                    "latitude": msg.latitude,
+                    "longitude": msg.longitude,
                 }
                 await manager.broadcast(order_room, payload)
 
