@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import models, database
@@ -7,6 +8,7 @@ from app.core.logging import setup_logging, get_logger, LoggingMiddleware
 from app.middleware.idempotency import IdempotencyMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.utils.exceptions import APIException, STATUS_CODE_MAP
 import cloudinary
 import time
 import os
@@ -52,6 +54,39 @@ app.add_middleware(IdempotencyMiddleware)
 
 # Log application startup
 logger.info("Application starting up", environment=os.getenv("ENVIRONMENT", "unknown"))
+
+
+# --- GLOBAL EXCEPTION HANDLERS ---
+@app.exception_handler(APIException)
+async def api_exception_handler(request: Request, exc: APIException):
+    """Standardized error response for all APIException subclasses."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.error_code,
+                "message": exc.detail,
+            }
+        },
+        headers=getattr(exc, "headers", None),
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Standardized error response for plain HTTPExceptions raised by routers."""
+    code = STATUS_CODE_MAP.get(exc.status_code, "ERROR")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": exc.detail,
+            }
+        },
+        headers=getattr(exc, "headers", None),
+    )
+# ----------------------------------
 
 
 @app.get("/health")
