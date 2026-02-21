@@ -16,7 +16,7 @@ class AsyncProductService:
     """Async product service using AsyncSession with Redis caching."""
     
     # Cache TTLs (in seconds)
-    PRODUCT_CACHE_TTL = 600  # 10 minutes
+    PRODUCT_CACHE_TTL = 60  # 1 minute (reduced from 600s to minimize overselling risk)
     ALL_PRODUCTS_CACHE_TTL = 300  # 5 minutes
     USER_PRODUCTS_CACHE_TTL = 300  # 5 minutes
 
